@@ -1,0 +1,35 @@
+{
+  "name": "legacy-wraps",
+  "version": "1.0.0",
+  "description": "Legacy Wraps — site, 3D wrap studio and shop admin",
+  "scripts": {
+    "dev": "node server/index.js",
+    "build": "vite build",
+    "start": "node server/index.js --prod",
+    "typecheck": "tsc --noEmit",
+    "db:setup": "node server/setup.js",
+    "db:reset": "node server/setup.js --reset",
+    "renders": "node dev/render-assets.mjs"
+  },
+  "type": "module",
+  "dependencies": {
+    "@supabase/supabase-js": "^2.119.2",
+    "express": "^5.3.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "react-router": "^8.5.3",
+    "three": "^0.187.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.3.3",
+    "@types/react-dom": "^19.3.0",
+    "@types/three": "^0.187.0",
+    "@vitejs/plugin-react": "^6.3.0",
+    "playwright-core": "^1.65.1",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.8"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
