@@ -17,8 +17,9 @@ const gltfCache = new Map<string, Promise<THREE.Group>>();
 function loadCar(id: string, onProgress?: (p: number) => void) {
   let p = gltfCache.get(id);
   if (!p) {
-    const file = (MODELS_3D as Record<string, { file: string }>)[id].file;
-    p = loader.loadAsync(file, (e) => e.total && onProgress?.(e.loaded / e.total)).then((g) => g.scene);
+    const { file, kb } = (MODELS_3D as Record<string, { file: string; kb: number }>)[id];
+    // Compressed responses report no total size, so fall back to the size in the manifest.
+    p = loader.loadAsync(file, (e) => onProgress?.(Math.min(1, e.loaded / (e.total || kb * 1024)))).then((g) => g.scene);
     p.catch(() => gltfCache.delete(id));
     gltfCache.set(id, p);
   }
@@ -184,6 +185,12 @@ export class CarScene {
     this.config = cfg;
     if (cfg.env !== this.envName) this.setEnv(cfg.env);
     if (!force && this.car?.id === cfg.model) {
+      if (this.loadingId) {
+        // Back on the car that's already on stage: drop the other car's pending load.
+        this.loadToken++;
+        this.loadingId = null;
+        this.onStatus?.({ loading: false, progress: 1 });
+      }
       this.paintCar();
       return;
     }
