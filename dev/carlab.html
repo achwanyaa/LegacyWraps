@@ -8,13 +8,14 @@ const q = new URLSearchParams(location.search);
 const films = await (await fetch('/api/films')).json();
 const s = new CarScene(document.getElementById('c'), { interactive: true });
 s.setFilms(films);
-window.render = (cfg, view = 'hero', zoom = 1) => {
+window.render = async (cfg, view = 'hero', zoom = 1) => {
   s.setConfig(normalizeConfig(cfg));
+  await s.whenReady();
   s.camera.position.set(...s.view(view).map((v) => v * zoom));
   s.camera.lookAt(0, s.targetY, 0);
   if (s.controls) s.controls.update();
 };
 window.snap = (w, h) => s.snapshot(w, h, 'image/webp', true);
-window.render({ ...DEFAULT_CONFIG, model: q.get('model') || DEFAULT_CONFIG.model, env: q.get('env') || 'studio', stripes: q.get('stripes') || 'none', zones: { body: q.get('film') || DEFAULT_CONFIG.zones.body, roof: q.get('roof') } }, q.get('view') || 'hero');
+await window.render({ ...DEFAULT_CONFIG, model: q.get('model') || DEFAULT_CONFIG.model, env: q.get('env') || 'studio', zones: { body: q.get('film') || DEFAULT_CONFIG.zones.body, roof: q.get('roof') } }, q.get('view') || 'hero');
 window.__ready = true;
 </script></body></html>

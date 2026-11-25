@@ -1,9 +1,42 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
-import { buildCar, type CarParts } from './car';
-import { filmMaterial, solidMaterial, plateTexture } from './materials';
-import { WHEELS, CALIPERS, TINT, modelById } from '../../shared/catalog.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
+import { filmMaterial, solidMaterial } from './materials';
+import { WHEELS, TINT, modelById } from '../../shared/catalog.js';
+import { MODELS_3D } from '../../shared/models3d.js';
+
+export type Zone = 'paint' | 'hood' | 'roof' | 'glass' | 'rims' | 'trim';
+export const has3d = (modelId: string) => !!(MODELS_3D as Record<string, unknown>)[modelId];
+export const zonesFor = (modelId: string): Zone[] => ((MODELS_3D as Record<string, { zones: Zone[] }>)[modelId]?.zones || []) as Zone[];
+
+// One parsed copy of each car per page; scenes clone it.
+const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
+const gltfCache = new Map<string, Promise<THREE.Group>>();
+function loadCar(id: string, onProgress?: (p: number) => void) {
+  let p = gltfCache.get(id);
+  if (!p) {
+    const file = (MODELS_3D as Record<string, { file: string }>)[id].file;
+    p = loader.loadAsync(file, (e) => e.total && onProgress?.(e.loaded / e.total)).then((g) => g.scene);
+    p.catch(() => gltfCache.delete(id));
+    gltfCache.set(id, p);
+  }
+  return p;
+}
+
+export interface SceneStatus {
+  loading: boolean;
+  progress: number;
+  error?: string;
+  missing?: boolean; // no 3D model for this car yet
+}
+
+interface LoadedCar {
+  id: string;
+  group: THREE.Group;
+  meshes: { mesh: THREE.Mesh; zone: Zone | null }[];
+}
 import type { BuildConfig, EnvName, Film } from '../lib/types';
 
 export const ENVS: Record<EnvName, { label: string; bg: [string, string]; exposure: number; env: number; key: string; fill: string; rim: [string, string] | null; ink: 'dark' | 'light' }> = {
@@ -32,7 +65,10 @@ export class CarScene {
   scene = new THREE.Scene();
   camera = new THREE.PerspectiveCamera(26, 16 / 9, 0.1, 100);
   controls?: OrbitControls;
-  car?: CarParts;
+  car?: LoadedCar;
+  onStatus?: (s: SceneStatus) => void;
+  private loadingId: string | null = null;
+  private loadToken = 0;
   films: Record<string, Film> = {};
   config?: BuildConfig;
   private envName: EnvName = 'studio';
@@ -46,7 +82,6 @@ export class CarScene {
   private ro?: ResizeObserver;
   private io?: IntersectionObserver;
   private clock = new THREE.Timer();
-  private plateText = '';
   private fit = 1;
   private prevFit = 0;
   targetY = 0.55;
@@ -92,19 +127,10 @@ export class CarScene {
     blob.name = 'blob';
     this.scene.add(blob);
 
-    const std = (o: THREE.MeshStandardMaterialParameters) => new THREE.MeshStandardMaterial(o);
     this.base = {
-      glass: new THREE.MeshPhysicalMaterial({ color: '#0b0d10', roughness: 0.04, metalness: 0.2, transparent: true, opacity: 0.6, clearcoat: 1, envMapIntensity: 1.6 }),
-      interior: std({ color: '#0a0a0b', roughness: 0.9, side: THREE.BackSide }),
-      headlight: std({ color: '#ffffff', emissive: '#eaf3ff', emissiveIntensity: 2.2, roughness: 0.2 }),
-      taillight: std({ color: '#ff1a2a', emissive: '#ff0018', emissiveIntensity: 1.8, roughness: 0.25 }),
+      glass: new THREE.MeshPhysicalMaterial({ color: '#0b0d10', roughness: 0.04, metalness: 0.2, transparent: true, opacity: 0.6, clearcoat: 1, envMapIntensity: 1.6, depthWrite: false }),
       black: new THREE.MeshPhysicalMaterial({ color: '#08080a', roughness: 0.35, clearcoat: 0.6 }),
-      well: std({ color: '#050505', roughness: 1 }),
-      tire: std({ color: '#141415', roughness: 0.92, side: THREE.DoubleSide }),
-      disc: std({ color: '#8a8c90', roughness: 0.35, metalness: 0.9 }),
       chrome: new THREE.MeshPhysicalMaterial({ color: '#e6e8ec', roughness: 0.05, metalness: 1 }),
-      plate: std({ color: '#ffffff', roughness: 0.5 }),
-      plateRear: std({ color: '#ffffff', roughness: 0.5 }),
     };
 
     this.camera.position.set(...VIEWS.hero);
@@ -155,78 +181,102 @@ export class CarScene {
   }
 
   private apply(cfg: BuildConfig, force: boolean) {
-    const prev = this.config;
     this.config = cfg;
+    if (cfg.env !== this.envName) this.setEnv(cfg.env);
+    if (!force && this.car?.id === cfg.model) {
+      this.paintCar();
+      return;
+    }
+    if (!force && this.loadingId === cfg.model) return;
+    this.swapCar(cfg.model);
+  }
+
+  /** Load (or reuse) the car's GLB and put it on the stage. */
+  private async swapCar(id: string) {
+    const token = ++this.loadToken;
+    if (!has3d(id)) {
+      this.clearCar();
+      this.loadingId = null;
+      this.onStatus?.({ loading: false, progress: 0, missing: true });
+      return;
+    }
+    this.loadingId = id;
+    this.onStatus?.({ loading: true, progress: 0 });
+    try {
+      const src = await loadCar(id, (p) => token === this.loadToken && this.onStatus?.({ loading: true, progress: p }));
+      if (token !== this.loadToken) return; // user picked another car meanwhile
+      this.clearCar();
+      const group = src.clone(true);
+      const meshes: LoadedCar['meshes'] = [];
+      group.traverse((o) => {
+        const m = o as THREE.Mesh;
+        if (!m.isMesh) return;
+        const name = (Array.isArray(m.material) ? m.material[0] : m.material)?.name || '';
+        const zone = name.startsWith('LW_') ? (name.slice(3) as Zone) : null;
+        m.castShadow = zone !== 'glass';
+        m.receiveShadow = false;
+        if (!zone) {
+          for (const mat of [m.material].flat() as THREE.MeshStandardMaterial[]) mat.envMapIntensity = 1.2;
+        }
+        meshes.push({ mesh: m, zone });
+      });
+      const spec = modelById(id);
+      const [L, W, H] = spec.dims as number[];
+      this.car = { id, group, meshes };
+      this.scene.add(group);
+      const blob = this.scene.getObjectByName('blob')!;
+      blob.scale.set(L * 1.12, 1, W * 1.25);
+      blob.visible = true;
+      this.fit = Math.max(L / 4.7, H / 1.75, 0.9);
+      this.targetY = H * 0.42;
+      if (this.controls) this.controls.target.y = this.targetY;
+      if (this.prevFit) this.camera.position.multiplyScalar(this.fit / this.prevFit);
+      else this.camera.position.set(...this.view('hero'));
+      this.prevFit = this.fit;
+      this.camera.lookAt(0, this.targetY, 0);
+      this.loadingId = null;
+      this.paintCar();
+      this.onStatus?.({ loading: false, progress: 1 });
+    } catch (e) {
+      if (token !== this.loadToken) return;
+      this.loadingId = null;
+      this.onStatus?.({ loading: false, progress: 0, error: (e as Error).message || 'Could not load this car' });
+    }
+  }
+
+  private clearCar() {
+    this.scene.getObjectByName('blob')!.visible = false;
+    if (!this.car) return;
+    this.scene.remove(this.car.group);
+    this.car = undefined;
+  }
+
+  /** Apply the current config's films and options to the loaded car's wrap zones. */
+  private paintCar() {
+    const cfg = this.config;
+    if (!cfg || !this.car) return;
     const stealth = cfg.ppf !== 'none' && cfg.ppfFinish === 'stealth';
     const paint = (id: string | null) => {
       const fid = id || cfg.zones.body;
       return this.mat(`film:${fid}:${stealth}`, () => filmMaterial(this.films[fid], { stealth }));
     };
     const wheel = WHEELS.find((w) => w.id === cfg.wheels) || WHEELS[0];
-    const cal = CALIPERS.find((c) => c.id === cfg.calipers) || CALIPERS[0];
-    const mats: Record<string, THREE.Material> = {
-      ...this.base,
-      body: paint(cfg.zones.body),
-      roof: paint(cfg.zones.roof),
-      hood: paint(cfg.zones.hood),
-      mirrors: paint(cfg.zones.mirrors),
-      rim: this.mat(`wheel:${wheel.id}`, () => solidMaterial(wheel.hex, wheel.finish)),
-      barrel: this.mat(`barrel:${wheel.id}`, () => {
-        const m = solidMaterial(wheel.hex, wheel.finish) as THREE.MeshPhysicalMaterial;
-        m.color.multiplyScalar(0.55);
-        return m;
-      }),
-      caliper: this.mat(`cal:${cal.id}`, () => new THREE.MeshPhysicalMaterial({ color: cal.hex, roughness: 0.3, clearcoat: 1 })),
-      trim: cfg.chromeDelete ? this.base.black : this.base.chrome,
-      stripe: this.mat(`film:${cfg.stripeFilm}:${stealth}`, () => filmMaterial(this.films[cfg.stripeFilm], { stealth })),
-    };
-
-    if (force || !this.car || !prev || prev.model !== cfg.model) {
-      if (this.car) {
-        this.scene.remove(this.car.group);
-        this.car.group.traverse((o) => (o as THREE.Mesh).geometry?.dispose());
-      }
-      this.car = buildCar(modelById(cfg.model), mats);
-      this.scene.add(this.car.group);
-      const blob = this.scene.getObjectByName('blob')!;
-      blob.scale.set(this.car.params.L * 1.12, 1, this.car.params.W * 2.5);
-      const P = this.car.params;
-      this.fit = Math.max(P.L / 4.7, P.H / 1.75, 0.9);
-      this.targetY = P.H * 0.36;
-      if (this.controls) this.controls.target.y = this.targetY;
-      if (prev && this.prevFit) this.camera.position.multiplyScalar(this.fit / this.prevFit);
-      else this.camera.position.set(...this.view('hero'));
-      this.prevFit = this.fit;
-      this.camera.lookAt(0, this.targetY, 0);
-      this.plateText = '';
-    }
-    const c = this.car;
-    c.paint.body.material = mats.body;
-    c.paint.roof.material = mats.roof;
-    c.paint.hood.material = mats.hood;
-    c.paint.mirrors.forEach((m) => (m.material = mats.mirrors));
-    c.rims.forEach((m) => (m.material = mats.rim));
-    c.wheels.forEach((g) => g.children[1] && ((g.children[1] as THREE.Mesh).material = mats.barrel));
-    c.calipers.forEach((m) => (m.material = mats.caliper));
-    c.trim.material = mats.trim;
-    c.stripes.single.material = mats.stripe;
-    c.stripes.twin.material = mats.stripe;
-    c.stripes.single.visible = cfg.stripes === 'single';
-    c.stripes.twin.visible = cfg.stripes === 'twin';
     const glass = this.base.glass as THREE.MeshPhysicalMaterial;
     glass.opacity = (TINT[cfg.tint] || TINT[0]).opacity;
+    const byZone: Record<Zone, THREE.Material> = {
+      paint: paint(cfg.zones.body),
+      hood: paint(cfg.zones.hood),
+      roof: paint(cfg.zones.roof),
+      glass,
+      rims: this.mat(`wheel:${wheel.id}`, () => solidMaterial(wheel.hex, wheel.finish)),
+      trim: cfg.chromeDelete ? this.base.black : this.base.chrome,
+    };
+    for (const { mesh, zone } of this.car.meshes) if (zone) mesh.material = byZone[zone];
+  }
 
-    if (this.plateText !== cfg.plate) {
-      this.plateText = cfg.plate;
-      // Kenyan plates: white at the front, yellow at the rear
-      for (const [key, rear] of [['plate', false], ['plateRear', true]] as const) {
-        const pm = this.base[key] as THREE.MeshStandardMaterial;
-        pm.map?.dispose();
-        pm.map = plateTexture(cfg.plate, rear);
-        pm.needsUpdate = true;
-      }
-    }
-    if (cfg.env !== this.envName) this.setEnv(cfg.env);
+  /** Resolves once the current car is on stage (or there is none to load). */
+  async whenReady() {
+    for (let i = 0; i < 600 && this.loadingId; i++) await new Promise((r) => setTimeout(r, 50));
   }
 
   setEnv(name: EnvName) {
@@ -347,7 +397,7 @@ export class CarScene {
     this.ro?.disconnect();
     this.io?.disconnect();
     this.controls?.dispose();
-    this.scene.traverse((o) => (o as THREE.Mesh).geometry?.dispose());
+    this.loadToken++;
     this.matCache.forEach((m) => m.dispose());
     this.renderer.dispose();
   }
@@ -364,32 +414,4 @@ function contactShadow() {
   g.fillStyle = r;
   g.fillRect(0, 0, 256, 256);
   return new THREE.CanvasTexture(c);
-}
-
-// ---------- offscreen renders for gallery cards / admin thumbnails ----------
-let shared: CarScene | null = null;
-const cache = new Map<string, string>();
-let queue = Promise.resolve();
-
-export function renderStill(cfg: BuildConfig, films: Film[], view: ViewName = 'hero', w = 960, h = 600): Promise<string> {
-  const key = JSON.stringify([cfg, view, w, h, films.length]);
-  const hit = cache.get(key);
-  if (hit) return Promise.resolve(hit);
-  const job = queue.then(() => {
-    if (!shared) {
-      const canvas = document.createElement('canvas');
-      canvas.width = w;
-      canvas.height = h;
-      shared = new CarScene(canvas, { manual: true });
-    }
-    if (Object.keys(shared.films).length !== films.length) shared.setFilms(films);
-    shared.setConfig(cfg);
-    shared.camera.position.set(...shared.view(view));
-    shared.camera.lookAt(0, shared.targetY, 0);
-    const url = shared.snapshot(w, h, 'image/jpeg');
-    cache.set(key, url);
-    return url;
-  });
-  queue = job.then(() => undefined, () => undefined);
-  return job;
 }

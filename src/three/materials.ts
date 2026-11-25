@@ -55,8 +55,8 @@ export function filmMaterial(film: Film | undefined, opts: PaintOpts = {}) {
       Object.assign(m, { roughness: 0.18, metalness: 0, clearcoat: 1, clearcoatRoughness: 0.02 });
       break;
     case 'satin':
-      Object.assign(m, { roughness: 0.42, metalness: 0.08, clearcoat: 0.35, clearcoatRoughness: 0.38, sheen: 0.4, sheenRoughness: 0.6 });
-      m.sheenColor.set('#ffffff');
+      Object.assign(m, { roughness: 0.5, metalness: 0.1, clearcoat: 0.2, clearcoatRoughness: 0.45, sheen: 0.25, sheenRoughness: 0.7 });
+      m.sheenColor.set(hex).lerp(new THREE.Color('#ffffff'), 0.25);
       break;
     case 'matte':
       Object.assign(m, { roughness: 0.82, metalness: 0, clearcoat: 0 });
@@ -107,25 +107,4 @@ export function filmMaterial(film: Film | undefined, opts: PaintOpts = {}) {
 
 export function solidMaterial(hex: string, finish: string) {
   return filmMaterial({ id: 'solid', brand: '', name: '', finish: finish as Film['finish'], hex, hex2: null, price: 0, in_stock: true, featured: false, sort: 0 });
-}
-
-export function plateTexture(text: string, rear = false) {
-  const c = document.createElement('canvas');
-  c.width = 520;
-  c.height = 120;
-  const g = c.getContext('2d')!;
-  g.fillStyle = rear ? '#f5c518' : '#f4f3ee';
-  g.fillRect(0, 0, 520, 120);
-  g.strokeStyle = '#111';
-  g.lineWidth = 6;
-  g.strokeRect(6, 6, 508, 108);
-  g.fillStyle = '#111';
-  g.font = '800 74px "Archivo", "Arial Narrow", sans-serif';
-  g.textAlign = 'center';
-  g.textBaseline = 'middle';
-  g.fillText(text || 'KDL 254W', 260, 64);
-  const t = new THREE.CanvasTexture(c);
-  t.colorSpace = THREE.SRGBColorSpace;
-  t.anisotropy = 4;
-  return t;
 }

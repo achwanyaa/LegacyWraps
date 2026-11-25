@@ -1,0 +1,37 @@
+<!doctype html><html><head><meta charset="utf-8"><style>html,body{margin:0;height:100%;background:#d9d6cf;font:600 22px system-ui}#w{width:960px;height:600px;position:relative}#l{position:absolute;left:12px;top:10px;background:#000c;color:#fff;padding:4px 10px;border-radius:6px}</style></head>
+<body><div id="w"><canvas id="c" style="width:100%;height:100%"></canvas><div id="l"></div></div>
+<script type="module">
+// Dev-only: inspect raw car models and find which materials are paint/glass/rims.
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+const q = new URLSearchParams(location.search);
+const r = new THREE.WebGLRenderer({ canvas: document.getElementById('c'), antialias: true, preserveDrawingBuffer: true });
+r.setSize(960, 600, false); r.toneMapping = THREE.NeutralToneMapping;
+const scene = new THREE.Scene(); scene.background = new THREE.Color('#d9d6cf');
+scene.environment = new THREE.PMREMGenerator(r).fromScene(new RoomEnvironment(), 0.04).texture;
+scene.add(new THREE.DirectionalLight('#fff', 2).translateY(8).translateX(4));
+const cam = new THREE.PerspectiveCamera(28, 960 / 600, 0.1, 200);
+const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
+const gltf = await loader.loadAsync(q.get('src'));
+const root = gltf.scene; scene.add(root);
+const hide = (q.get('hide') || '').split(',').filter(Boolean);
+root.traverse((o) => { if (o.isMesh && [].concat(o.material).some((m) => hide.some((h) => m.name.startsWith(h)))) o.visible = false; });
+root.updateMatrixWorld(true);
+const box = new THREE.Box3(); root.traverse((o) => { if (o.isMesh && o.visible) box.expandByObject(o); }); const size = box.getSize(new THREE.Vector3()); const c = box.getCenter(new THREE.Vector3());
+window.info = { size: size.toArray().map((v) => +v.toFixed(3)), center: c.toArray().map((v) => +v.toFixed(3)) };
+const tri = new Map(); const orig = new Map(); const meshes = [];
+root.traverse((o) => { if (o.isMesh && o.visible) { meshes.push(o); o.userData.orig = o.material; const ms = Array.isArray(o.material) ? o.material : [o.material]; for (const m of ms) { orig.set(m.uuid, m); const n = (o.geometry.index ? o.geometry.index.count : o.geometry.attributes.position.count) / 3; tri.set(m.name, (tri.get(m.name) || 0) + n / ms.length); } } });
+window.materials = [...tri.entries()].sort((a, b) => b[1] - a[1]).map(([n, t]) => [n, Math.round(t)]);
+const hiMat = new THREE.MeshStandardMaterial({ color: '#ff00ff', roughness: 0.4 });
+const greyMat = new THREE.MeshStandardMaterial({ color: '#9a9a9a', roughness: 0.8 });
+window.show = (names, label, view = 'q') => {
+  for (const o of meshes) { const pick = (m) => (names === null ? m : names.includes(m.name) ? hiMat : greyMat); const om = o.userData.orig; o.material = Array.isArray(om) ? om.map(pick) : pick(om); }
+  document.getElementById('l').textContent = label || '';
+  const d = Math.max(size.x, size.y, size.z) * 2.6;
+  const V = { q: [0.65, 0.35, 0.75], q2: [-0.65, 0.35, -0.75], x: [1, 0.15, 0], z: [0, 0.15, 1], nx: [-1, 0.15, 0], nz: [0, 0.15, -1], top: [0.01, 1, 0.01] }[view];
+  cam.position.set(c.x + V[0] * d, c.y + V[1] * d, c.z + V[2] * d); cam.lookAt(c); r.render(scene, cam);
+};
+window.__ready = true;
+</script></body></html>

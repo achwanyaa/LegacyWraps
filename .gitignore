@@ -6,3 +6,4 @@ data
 
 .vercel
 .env*
+models-src

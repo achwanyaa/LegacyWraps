@@ -51,6 +51,15 @@ Pushing to `main` deploys. In the Vercel project, set `SUPABASE_URL` and `SUPABA
 | `npm run db:reset` | Apply schema, wipe and reseed demo data |
 | `npm run renders` | Re-render homepage hero stills and job thumbnails with the 3D studio (needs `npm run dev` running and Edge or Chrome installed) |
 
+## Real 3D car models
+
+The Studio uses real car models (CC BY 4.0, credited in the site footer), optimised to 0.5–4 MB each and loaded only when a customer picks that car. Cars without a model show "coming soon" and can still be quoted.
+
+1. `node dev/fetch-models.mjs` downloads the Sketchfab sources listed in that file into `models-src/` (git-ignored, needs `SKETCHFAB_TOKEN` in `.env.local`). Bought models go in `models-src/<model-id>.glb` too.
+2. Add a recipe to `dev/build-models.mjs` naming which materials are paint, bonnet, roof, glass, rims and trim. `dev/modellab.html` + `dev/matsheet.mjs` render each material highlighted to find them.
+3. `node dev/build-models.mjs [id]` writes `public/models/<id>.glb` and updates `shared/models3d.js`.
+4. `npm run renders -- --all-jobs` refreshes homepage stills and job thumbnails.
+
 ## Editing content
 
 - **Films and prices:** Admin → Films (KES per sq ft of film).

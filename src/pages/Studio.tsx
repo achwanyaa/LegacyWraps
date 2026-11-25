@@ -1,17 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
-import { CarScene, ENVS, type ViewName } from '../three/CarScene';
+import { CarScene, ENVS, has3d, zonesFor, type ViewName, type SceneStatus } from '../three/CarScene';
 import { Logo } from '../components/SiteChrome';
 import { Swatch } from '../components/Swatch';
 import { api, useApi, useFilms, useSettings, encodeBuild, decodeBuild, whatsappLink, fmtDate } from '../lib/api';
 import {
-  MODELS, MAKE_GROUPS, CLASSES, FINISHES, WHEELS, CALIPERS, TINT, STRIPES, DEFAULT_CONFIG,
+  MODELS, MAKE_GROUPS, CLASSES, FINISHES, WHEELS, CALIPERS, TINT, DEFAULT_CONFIG,
   normalizeConfig, estimate, money, modelById, modelName, vehicleLabel,
 } from '../../shared/catalog.js';
 import type { BuildConfig, EnvName, Film, VehicleModel } from '../lib/types';
 import '../styles/studio.css';
 
-type Zone = 'roof' | 'hood' | 'mirrors' | 'stripes';
+type Zone = 'roof' | 'hood';
 
 function initialConfig(params: URLSearchParams): BuildConfig {
   const b = params.get('b');
@@ -189,6 +189,7 @@ export default function Studio() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const sceneRef = useRef<CarScene | null>(null);
   const [ready, setReady] = useState(false);
+  const [status, setStatus] = useState<SceneStatus>({ loading: true, progress: 0 });
   const [rotate, setRotate] = useState(false);
   const [view, setView] = useState<ViewName>('hero');
   const [finish, setFinish] = useState('all');
@@ -214,6 +215,7 @@ export default function Studio() {
   useEffect(() => {
     if (!filmList || !canvasRef.current) return;
     const s = new CarScene(canvasRef.current, { interactive: true });
+    s.onStatus = setStatus;
     s.setFilms(filmList);
     sceneRef.current = s;
     s.setConfig(cfg);
@@ -244,13 +246,11 @@ export default function Studio() {
     const pool = films.filter((f) => f.in_stock);
     const pick = <T,>(a: T[]) => a[Math.floor(Math.random() * a.length)];
     const f = pick(pool);
-    const contrast = Math.random() < 0.4 ? pick(pool.filter((x) => x.finish === 'gloss' || x.finish === 'carbon'))?.id || null : null;
+    const contrast = Math.random() < 0.45 ? pick(pool.filter((x) => x.finish === 'gloss' || x.finish === 'carbon'))?.id || null : null;
     update({
-      zones: { body: f.id, roof: contrast, hood: null, mirrors: contrast },
+      zones: { body: f.id, roof: zones.includes('roof') ? contrast : null, hood: zones.includes('hood') && !zones.includes('roof') ? contrast : null, mirrors: null },
       wheels: pick(WHEELS).id,
       calipers: pick(CALIPERS).id,
-      stripes: Math.random() < 0.25 ? pick(['single', 'twin'] as const) : 'none',
-      stripeFilm: pick(pool).id,
     });
   }
   async function share() {
@@ -276,15 +276,37 @@ export default function Studio() {
     a.click();
   }
   const env = ENVS[cfg.env];
-  const zoneValue = zone === 'stripes' ? null : cfg.zones[zone];
+  const zones = zonesFor(cfg.model);
+  const accentZones = (['roof', 'hood'] as Zone[]).filter((z) => zones.includes(z));
+  const activeZone = accentZones.includes(zone) ? zone : accentZones[0];
+  const is3d = has3d(cfg.model);
 
   return (
     <div className={`studio env-${cfg.env}`} style={{ '--bg-a': env.bg[0], '--bg-b': env.bg[1] } as React.CSSProperties}>
       <div className="stage">
         <canvas ref={canvasRef} className={ready ? 'on' : ''} aria-label={`3D preview of ${vehicleLabel(cfg)}`} />
-        {!ready && (
+        {(!ready || status.loading) && !status.missing && (
           <div className="stage-loading">
-            {filmErr ? <p>Couldn't load the studio. Check your connection and refresh.</p> : <div className="spinner" />}
+            {filmErr || status.error ? (
+              <p>Couldn't load this car. Check your connection and try again.</p>
+            ) : (
+              <div className="loader">
+                <div className="loader-bar">
+                  <i style={{ transform: `scaleX(${Math.max(0.04, status.progress)})` }} />
+                </div>
+                <span className="mono">Loading {modelName(model)} · {Math.round(status.progress * 100)}%</span>
+              </div>
+            )}
+          </div>
+        )}
+        {status.missing && (
+          <div className="stage-soon">
+            <span className="mono">3D model coming soon</span>
+            <strong className="display">{modelName(model)}</strong>
+            <p>We wrap this car every week. Its 3D model is still being prepared — pick your film and options and we'll quote it the same way.</p>
+            <button className="btn accent" disabled={!body} onClick={() => setQuote(true)}>
+              Request a quote <span className="arrow">→</span>
+            </button>
           </div>
         )}
         <div className="stage-top">
@@ -302,7 +324,7 @@ export default function Studio() {
             </span>
           )}
         </div>
-        <div className="stage-bottom">
+        {is3d && <div className="stage-bottom">
           <div className="views" role="toolbar" aria-label="Camera">
             {(['hero', 'front', 'side', 'rear', 'top'] as ViewName[]).map((v) => (
               <button
@@ -336,7 +358,7 @@ export default function Studio() {
               Save image
             </button>
           </div>
-        </div>
+        </div>}
       </div>
 
       <aside className="panel">
@@ -358,9 +380,11 @@ export default function Studio() {
               ))}
             </div>
             <div className="models">
-              {modelsInMake.map((m) => (
+              {[...modelsInMake].sort((a, b) => Number(has3d(b.id)) - Number(has3d(a.id))).map((m) => (
                 <button key={m.id} className={`model ${cfg.model === m.id ? 'on' : ''}`} onClick={() => update({ model: m.id })} aria-pressed={cfg.model === m.id}>
-                  <strong>{m.model}</strong>
+                  <strong>
+                    {m.model} <i className={`tag ${has3d(m.id) ? 'live' : ''}`}>{has3d(m.id) ? '3D' : 'Soon'}</i>
+                  </strong>
                   <span className="mono mute">
                     {m.make.replace('Mercedes-', '')} · {m.gen}
                   </span>
@@ -398,29 +422,21 @@ export default function Studio() {
             )}
           </Section>
 
-          <Section n="03" title="Accents">
-            <div className="tabs" role="tablist">
-              {(['roof', 'hood', 'mirrors', 'stripes'] as Zone[]).map((z) => (
-                <button key={z} role="tab" aria-selected={zone === z} onClick={() => setZone(z)}>
-                  {z === 'hood' ? 'Bonnet' : z[0].toUpperCase() + z.slice(1)}
-                  {z !== 'stripes' && cfg.zones[z] && <i className="tab-dot" />}
-                  {z === 'stripes' && cfg.stripes !== 'none' && <i className="tab-dot" />}
-                </button>
-              ))}
-            </div>
-            {zone === 'stripes' ? (
-              <>
-                <Seg label="Stripe style" value={cfg.stripes} options={STRIPES as { id: BuildConfig['stripes']; label: string }[]} onChange={(v) => update({ stripes: v })} />
-                {cfg.stripes !== 'none' && (
-                  <FilmPicker films={films.filter((f) => f.in_stock)} value={cfg.stripeFilm} onPick={(id) => id && update({ stripeFilm: id })} size={32} />
-                )}
-              </>
-            ) : (
-              <FilmPicker films={films.filter((f) => f.in_stock)} value={zoneValue} onPick={(id) => setZoneFilm(zone, id)} size={32} allowNone />
-            )}
-          </Section>
+          {accentZones.length > 0 && activeZone && (
+            <Section n="03" title="Contrast panels">
+              <div className="tabs" role="tablist">
+                {accentZones.map((z) => (
+                  <button key={z} role="tab" aria-selected={activeZone === z} onClick={() => setZone(z)}>
+                    {z === 'hood' ? 'Bonnet' : 'Roof'}
+                    {cfg.zones[z] && <i className="tab-dot" />}
+                  </button>
+                ))}
+              </div>
+              <FilmPicker films={films.filter((f) => f.in_stock)} value={cfg.zones[activeZone]} onPick={(id) => setZoneFilm(activeZone, id)} size={32} allowNone />
+            </Section>
+          )}
 
-          <Section n="04" title="Wheels & calipers">
+          <Section n={accentZones.length ? '04' : '03'} title="Wheels & calipers">
             <div className="opt-row">
               {WHEELS.map((w) => (
                 <button key={w.id} className={`opt ${cfg.wheels === w.id ? 'on' : ''}`} onClick={() => update({ wheels: w.id })} aria-pressed={cfg.wheels === w.id}>
@@ -430,6 +446,7 @@ export default function Studio() {
               ))}
             </div>
             <div className="opt-row">
+              {!zones.includes('rims') && is3d && <p className="hint full-row">Rim colour isn't previewed on this model yet. It's still included in your quote.</p>}
               {CALIPERS.map((c) => (
                 <button key={c.id} className={`opt ${cfg.calipers === c.id ? 'on' : ''}`} onClick={() => update({ calipers: c.id })} aria-pressed={cfg.calipers === c.id}>
                   <Swatch hex={c.hex} finish="gloss" size={22} />
@@ -437,9 +454,10 @@ export default function Studio() {
                 </button>
               ))}
             </div>
+            <p className="hint">Caliper colour is included in your quote.</p>
           </Section>
 
-          <Section n="05" title="Window tint" aside={<span className="mono">{TINT[cfg.tint].vlt}</span>}>
+          <Section n={accentZones.length ? '05' : '04'} title="Window tint" aside={<span className="mono">{TINT[cfg.tint].vlt}</span>}>
             <input
               type="range"
               className="range"
@@ -459,7 +477,7 @@ export default function Studio() {
             <p className="hint">We'll advise which shades keep your front glass road-legal.</p>
           </Section>
 
-          <Section n="06" title="Protection & finish">
+          <Section n={accentZones.length ? '06' : '05'} title="Protection & finish">
             <div className="field">
               <span>Paint protection film</span>
               <Seg
@@ -496,9 +514,6 @@ export default function Studio() {
             </label>
           </Section>
 
-          <Section n="07" title="Number plate">
-            <input className="input plate-input" value={cfg.plate} maxLength={8} onChange={(e) => update({ plate: e.target.value.toUpperCase() })} aria-label="Number plate" />
-          </Section>
         </div>
 
         <div className="pricebar">
@@ -524,7 +539,7 @@ export default function Studio() {
         </div>
       </aside>
 
-      {quote && <QuoteModal cfg={cfg} total={est.total} onClose={() => setQuote(false)} snap={() => sceneRef.current?.snapshot(1280, 720, 'image/webp') || null} />}
+      {quote && <QuoteModal cfg={cfg} total={est.total} onClose={() => setQuote(false)} snap={() => (is3d && sceneRef.current ? sceneRef.current.snapshot(1280, 720, 'image/webp') : null)} />}
       {toast && <div className="toast">{toast}</div>}
     </div>
   );

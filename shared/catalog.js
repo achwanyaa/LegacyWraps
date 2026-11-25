@@ -41,7 +41,7 @@ export const MODELS = [
   { id: 'mercedes-glc63', make: 'Mercedes-AMG', model: 'GLC 63 S', gen: 'X253', shape: 'suv', dims: [4.736, 1.931, 1.584, 2.873], wheel: 0.37 },
   { id: 'mercedes-gle250', make: 'Mercedes-Benz', model: 'GLE 250d', gen: 'W166', shape: 'suv', dims: [4.819, 1.935, 1.796, 2.915], wheel: 0.38 },
   { id: 'mercedes-gle400', make: 'Mercedes-Benz', model: 'GLE 400', gen: 'W166', shape: 'suv', dims: [4.924, 1.947, 1.772, 2.995], wheel: 0.38 },
-  { id: 'mercedes-gle-coupe', make: 'Mercedes-AMG', model: 'GLE 43 Coupé', gen: 'C292', shape: 'suvcoupe', dims: [4.9, 2.003, 1.731, 2.915], wheel: 0.39 },
+  { id: 'mercedes-gle-coupe', make: 'Mercedes-AMG', model: 'GLE 63 S Coupé', gen: 'C167', shape: 'suvcoupe', dims: [4.961, 2.014, 1.716, 2.935], wheel: 0.4 },
   { id: 'mercedes-g63', make: 'Mercedes-AMG', model: 'G 63', gen: 'W463A', shape: 'gwagon', dims: [4.873, 1.984, 1.966, 2.89], wheel: 0.41 },
   // Mazda
   { id: 'mazda-atenza', make: 'Mazda', model: 'Atenza', gen: 'GJ', shape: 'sedan', dims: [4.865, 1.84, 1.45, 2.83], wheel: 0.33 },
@@ -55,7 +55,7 @@ export const MODELS = [
   // Toyota & Lexus
   { id: 'toyota-lc300', make: 'Toyota', model: 'Land Cruiser 300', gen: 'J300', shape: 'boxy', dims: [4.985, 1.98, 1.925, 2.85], wheel: 0.41 },
   { id: 'toyota-lc200', make: 'Toyota', model: 'Land Cruiser V8', gen: 'J200', shape: 'boxy', dims: [4.95, 1.98, 1.905, 2.85], wheel: 0.4 },
-  { id: 'toyota-prado', make: 'Toyota', model: 'Prado TX-L', gen: 'J150', shape: 'boxy', dims: [4.84, 1.885, 1.845, 2.79], wheel: 0.39 },
+  { id: 'toyota-prado', make: 'Toyota', model: 'Land Cruiser Prado', gen: 'J250', shape: 'boxy', dims: [4.925, 1.98, 1.87, 2.85], wheel: 0.4 },
   { id: 'lexus-lx570', make: 'Lexus', model: 'LX 570', gen: 'J200', shape: 'boxy', dims: [5.065, 1.98, 1.865, 2.85], wheel: 0.41 },
   // Land Rover
   { id: 'range-rover-vogue', make: 'Land Rover', model: 'Range Rover Vogue', gen: 'L405', shape: 'boxy', dims: [4.999, 1.983, 1.835, 2.922], wheel: 0.4 },

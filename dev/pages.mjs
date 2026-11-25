@@ -14,7 +14,7 @@ for (const [label, vp, mobile] of [['d', { width: 1440, height: 900 }, false], [
     const full = path.endsWith('!');
     const url = base + path.replace(/!$/, '');
     await p.goto(url, { waitUntil: 'networkidle' });
-    await p.waitForTimeout(path.includes('studio') ? 3500 : 1200);
+    await p.waitForTimeout(path.includes('studio') ? 12000 : 2500);
     await p.screenshot({ path: `${out}-${label}${i++}.png`, fullPage: full });
   }
   await ctx.close();

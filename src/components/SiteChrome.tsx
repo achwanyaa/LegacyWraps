@@ -2,6 +2,8 @@ import '../styles/site.css';
 import { useEffect, useState } from 'react';
 import { Link, NavLink } from 'react-router';
 import { useSettings, whatsappLink } from '../lib/api';
+import { MODELS_3D } from '../../shared/models3d.js';
+import { modelById, modelName } from '../../shared/catalog.js';
 
 export function Logo({ light = false }: { light?: boolean }) {
   return (
@@ -101,6 +103,27 @@ export function Footer() {
             </p>
           </div>
         </div>
+        <details className="credits">
+          <summary className="mono">3D model credits</summary>
+          <p>
+            Car models used under{' '}
+            <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noreferrer">
+              CC BY 4.0
+            </a>
+            , optimised for the web by Legacy Wraps:{' '}
+            {Object.entries(MODELS_3D as Record<string, { credit: { title: string; author: string; url: string } }>).map(([id, m], i, all) => (
+              <span key={id}>
+                {modelName(modelById(id))} —{' '}
+                <a href={m.credit.url} target="_blank" rel="noreferrer">
+                  "{m.credit.title}"
+                </a>{' '}
+                by {m.credit.author}
+                {i < all.length - 1 ? ' · ' : '.'}
+              </span>
+            ))}{' '}
+            Vehicle names and marks belong to their manufacturers.
+          </p>
+        </details>
         <div className="footer-base mono">
           <span>© {new Date().getFullYear()} {s?.shopName || 'Legacy Wraps'} · Nairobi</span>
           <Link to="/admin">Staff</Link>

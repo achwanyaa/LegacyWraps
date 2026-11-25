@@ -182,3 +182,20 @@
     grid-column: 1 / -1;
   }
 }
+
+.credits {
+  margin-top: 48px;
+  font-size: 12px;
+  color: rgba(247, 246, 242, 0.5);
+}
+.credits summary {
+  cursor: pointer;
+  list-style: none;
+}
+.credits p {
+  max-width: 900px;
+  line-height: 1.7;
+}
+.credits a {
+  text-decoration: underline;
+}

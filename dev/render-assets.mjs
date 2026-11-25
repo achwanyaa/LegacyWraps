@@ -6,6 +6,7 @@ import { chromium } from 'playwright-core';
 import { ROOT } from '../server/env.js';
 import { sb, must } from '../server/db.js';
 import { HEROES } from '../shared/heroes.js';
+import { MODELS_3D } from '../shared/models3d.js';
 
 const base = process.env.LAB_URL || 'http://localhost:5180';
 const args = process.argv.slice(2);
@@ -21,7 +22,7 @@ await page.waitForFunction(() => window.__ready === true, null, { timeout: 60000
 
 async function still(config, w, h, view = 'hero', zoom = 1) {
   await page.evaluate(([c, v, z]) => window.render(c, v, z), [config, view, zoom]);
-  await page.waitForTimeout(400);
+  await page.waitForTimeout(300);
   const url = await page.evaluate(([w, h]) => window.snap(w, h), [w, h]);
   return Buffer.from(url.split(',')[1], 'base64');
 }
@@ -37,10 +38,21 @@ if (!args.includes('--jobs-only')) {
 }
 
 if (!args.includes('--heroes-only')) {
+  if (args.includes('--all-jobs')) {
+    // clear previous seed renders so storage doesn't collect orphans
+    const { data: old } = await sb.storage.from('snapshots').list('seed', { limit: 1000 });
+    if (old?.length) await sb.storage.from('snapshots').remove(old.map((o) => `seed/${o.name}`));
+  }
   let q = sb.from('jobs').select('id, code, config, snapshot_path');
   if (!args.includes('--all-jobs')) q = q.is('snapshot_path', null);
   const jobs = must(await q);
   for (const j of jobs) {
+    if (!MODELS_3D[j.config.model]) {
+      // no real 3D model yet: no render rather than a fake one
+      if (j.snapshot_path?.startsWith('seed/')) must(await sb.from('jobs').update({ snapshot_path: null }).eq('id', j.id));
+      console.log(`job ${j.code}: ${j.config.model} has no 3D model, skipped`);
+      continue;
+    }
     const buf = await still(j.config, 960, 600, 'hero', 0.8);
     const key = `seed/${j.code}.webp`;
     const { error } = await sb.storage.from('snapshots').upload(key, buf, { contentType: 'image/webp', upsert: true });
