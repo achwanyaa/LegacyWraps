@@ -1,0 +1,39 @@
+{
+  "//": "Per-car recipe, shared by dev/build-models.mjs (GLB for the 3D view) and render/scene.py (Blender spin renders). 'front' is the direction the car's nose points in the source file (glTF axes). 'remove' lists materials to delete. 'roles' maps wrap zones to source materials: a string is an exact material name, {\"near\":\"#rrggbb\"} matches by base colour. The first matching role wins.",
+  "mercedes-g63": {
+    "front": "+z",
+    "roles": {
+      "paint": ["bodypaint"],
+      "rims": ["AMG_wheels_color"],
+      "glass": ["G-class_glass", "G-class_glass.004", "G-class_glass_tint"],
+      "trim": ["AMG_silver", "radiator_silver"]
+    }
+  },
+  "mercedes-gle-coupe": {
+    "front": "-x",
+    "remove": ["Wet_stone_floor_with_moss."],
+    "roles": { "paint": ["Material_2125660675"], "rims": ["Material_2125663859"], "glass": ["Material_2125660666"] }
+  },
+  "range-rover-sport": {
+    "front": "+x",
+    "roles": { "paint": ["Car_Paint"], "hood": ["Carbon"], "glass": ["Glass"] }
+  },
+  "mazda-atenza": {
+    "front": "+z",
+    "remove": ["Material.005"],
+    "roles": { "paint": ["Material.001"], "glass": ["glasses_pivot_Glass__0"] }
+  },
+  "mazda-cx5": {
+    "front": "+z",
+    "roles": { "paint": ["Paint_Color"] }
+  },
+  "toyota-prado": {
+    "front": "+z",
+    "roles": {
+      "hood": ["WorldGridMaterial.007"],
+      "roof": ["WorldGridMaterial.019"],
+      "rims": ["WorldGridMaterial.003"],
+      "paint": [{ "near": "#604b0b" }, { "near": "#604c0a" }]
+    }
+  }
+}

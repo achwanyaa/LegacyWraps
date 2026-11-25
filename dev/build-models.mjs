@@ -18,40 +18,8 @@ const near = (hex) => (m) => {
   return h.every((v, i) => Math.abs(v - t[i]) <= 3);
 };
 
-/** Per-model recipe. Roles are matched by exact material name, or a predicate. First matching role wins. */
-const RECIPES = {
-  'mercedes-g63': {
-    front: '+z',
-    roles: { paint: ['bodypaint'], rims: ['AMG_wheels_color'], glass: ['G-class_glass', 'G-class_glass.004', 'G-class_glass_tint'], trim: ['AMG_silver', 'radiator_silver'] },
-  },
-  'mercedes-gle-coupe': {
-    front: '-x',
-    remove: ['Wet_stone_floor_with_moss.'],
-    roles: { paint: ['Material_2125660675'], rims: ['Material_2125663859'], glass: ['Material_2125660666'] },
-  },
-  'range-rover-sport': {
-    front: '+x',
-    roles: { paint: ['Car_Paint'], hood: ['Carbon'], glass: ['Glass'] },
-  },
-  'mazda-atenza': {
-    front: '+z',
-    remove: ['Material.005'],
-    roles: { paint: ['Material.001'], glass: ['glasses_pivot_Glass__0'] },
-  },
-  'mazda-cx5': {
-    front: '+z',
-    roles: { paint: ['Paint_Color'] },
-  },
-  'toyota-prado': {
-    front: '+z',
-    roles: {
-      hood: ['WorldGridMaterial.007'],
-      roof: ['WorldGridMaterial.019'],
-      rims: ['WorldGridMaterial.003'],
-      paint: [near('#604b0b'), near('#604c0a')],
-    },
-  },
-};
+/** Per-model recipes live in dev/recipes.json so the Blender spin renderer reads the same zone mapping. */
+const RECIPES = Object.fromEntries(Object.entries(JSON.parse(fs.readFileSync('dev/recipes.json', 'utf8'))).filter(([k]) => k !== '//'));
 
 const TARGET_TRIS = 220_000;
 const io = new NodeIO().registerExtensions(ALL_EXTENSIONS).registerDependencies({ 'meshopt.encoder': MeshoptEncoder, 'meshopt.decoder': MeshoptDecoder });
@@ -92,7 +60,7 @@ for (const [id, recipe] of Object.entries(RECIPES)) {
   const found = new Set();
   const matchRole = (m) => {
     for (const [role, rules] of Object.entries(recipe.roles))
-      if (rules.some((r) => (typeof r === 'function' ? r(m) : m.getName() === r))) return role;
+      if (rules.some((r) => (typeof r === 'string' ? m.getName() === r : near(r.near)(m)))) return role;
     return null;
   };
   for (const mesh of root.listMeshes())

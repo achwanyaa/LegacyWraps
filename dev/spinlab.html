@@ -1,0 +1,22 @@
+<!doctype html><html><head><meta charset="utf-8"><style>html,body{margin:0;height:100%;background:linear-gradient(#f3f1ec,#d8d5ce)}#w{width:1280px;height:720px}</style></head>
+<body><div id="w"><canvas id="c" style="width:100%;height:100%"></canvas></div>
+<script type="module">
+// Dev-only lab page for the spin view: same query string and window.render/snap as carlab.html, so stills can be compared.
+import { SpinStage } from '/src/spin/SpinStage.ts';
+import { normalizeConfig, DEFAULT_CONFIG } from '/shared/catalog.js';
+const q = new URLSearchParams(location.search);
+const films = await (await fetch('/api/films')).json();
+const s = new SpinStage(document.getElementById('c'), { interactive: true });
+window.stage = s;
+s.setFilms(films);
+window.render = async (cfg, view = 'hero') => {
+  s.setConfig(normalizeConfig(cfg));
+  await s.whenReady();
+  s.setView(view);
+  await new Promise((r) => setTimeout(r, 900));
+  await s.whenReady();
+};
+window.snap = (w, h) => s.snapshot(w, h, 'image/webp', true);
+await window.render({ ...DEFAULT_CONFIG, model: q.get('model') || DEFAULT_CONFIG.model, env: q.get('env') || 'studio', tint: +(q.get('tint') || 0), chromeDelete: q.has('dechrome'), wheels: q.get('wheels') || DEFAULT_CONFIG.wheels, zones: { body: q.get('film') || DEFAULT_CONFIG.zones.body, roof: q.get('roof'), hood: q.get('hood') } }, q.get('view') || 'hero');
+window.__ready = true;
+</script></body></html>
