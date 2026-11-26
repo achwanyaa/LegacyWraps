@@ -45,7 +45,7 @@ const marker = path.join(rawDir, '.kaggle.json');
 const stamp = `${stat.size}:${Math.round(stat.mtimeMs)}`;
 const have = fs.existsSync(marker) ? JSON.parse(fs.readFileSync(marker, 'utf8')) : {};
 const started = Date.now();
-if (have.stamp !== stamp || rest.includes('--fresh')) {
+if (!rest.includes('--fetch') && (have.stamp !== stamp || rest.includes('--fresh'))) {
   console.log(`Uploading ${glb} (${(stat.size / 1e6).toFixed(1)} MB) to the private dataset ${USER}/${dsSlug}...`);
   const blob = await api('POST', '/blobs/upload', { type: 'DATASET', name: 'car.glb', contentLength: stat.size, lastModifiedEpochSeconds: Math.round(stat.mtimeMs / 1000) });
   const put = await fetch(blob.createUrl, { method: 'PUT', headers: { 'Content-Type': 'application/octet-stream' }, body: fs.readFileSync(glb) });
@@ -107,7 +107,9 @@ print('LW status', status, flush=True)
 `;
 
 const slug = `lw-render-${id}`;
-const pushed = await api('POST', '/kernels/push', {
+// --fetch: only download the last run's output (e.g. after a dropped connection), no new render.
+const FETCH_ONLY = rest.includes('--fetch');
+const pushed = FETCH_ONLY ? { versionNumber: '(existing)', url: slug } : await api('POST', '/kernels/push', {
   slug: `${USER}/${slug}`, newTitle: `LW render ${id}`, text: script, language: 'python', kernelType: 'script',
   isPrivate: true, enableGpu: opt('device', 'CUDA') !== 'CPU', enableInternet: true,
   machineShape: opt('device', 'CUDA') === 'CPU' ? undefined : opt('machine', 'NvidiaTeslaT4'),
@@ -141,9 +143,18 @@ for (const l of lines) if (/^LW |Error|Traceback/.test(l)) console.log(l);
 const get = async (name) => {
   const f = files.find((x) => x.fileName === name);
   if (!f) return null;
-  const r = await fetch(f.url);
-  if (!r.ok) throw new Error(`Download ${name}: ${r.status}`);
-  return Buffer.from(await r.arrayBuffer());
+  // Large outputs over a phone or home connection can drop mid-way; retry a few times.
+  for (let attempt = 1; ; attempt++) {
+    try {
+      const r = await fetch(f.url);
+      if (!r.ok) throw new Error(`Download ${name}: ${r.status}`);
+      return Buffer.from(await r.arrayBuffer());
+    } catch (e) {
+      if (attempt >= 5) throw e;
+      console.log(`  download of ${name} failed (${e.message}), retrying ${attempt}/4...`);
+      await sleep(5000 * attempt);
+    }
+  }
 };
 const blenderLog = await get('blender.log');
 if (blenderLog) fs.writeFileSync(path.join(rawDir, '_blender.log'), blenderLog);
