@@ -96,10 +96,17 @@ export async function clearRate(key) {
 export const normLogin = (s) => String(s || '').trim().toLowerCase().slice(0, 120);
 
 // Internal settings: never sent to the public site.
-export const ADMIN_SETTING_DEFAULTS = { followUpHours: 3, followUpDays: 2 };
+export const ADMIN_SETTING_DEFAULTS = {
+  followUpHours: 3,
+  followUpDays: 2,
+  // Standard days a car holds a bay, per service (owner can change these in Settings).
+  serviceDays: { colour: 4, ppf: 3, tint: 1, ceramic: 2, chrome_delete: 2, partial: 2, other: 3 },
+};
 export async function adminSettings() {
   const s = await loadSettings();
-  return Object.fromEntries(Object.entries(ADMIN_SETTING_DEFAULTS).map(([k, d]) => [k, s[k] ?? d]));
+  return Object.fromEntries(
+    Object.entries(ADMIN_SETTING_DEFAULTS).map(([k, d]) => [k, d && typeof d === 'object' ? { ...d, ...(s[k] || {}) } : (s[k] ?? d)]),
+  );
 }
 
 /** Secret the Instagram tool sends in the x-lw-key header. Created on first use. */

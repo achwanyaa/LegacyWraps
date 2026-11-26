@@ -14,7 +14,7 @@ function addDays(s: string, n: number) {
 export default function Schedule() {
   const [from, setFrom] = useState(() => iso(new Date()));
   const { data: jobs, reload } = useApi<Job[]>('/admin/jobs');
-  const { data: sched, reload: reloadSched } = useApi<{ days: { date: string; free: number; used: number; closed: boolean }[]; jobDays: number }>(`/admin/schedule?from=${from}`);
+  const { data: sched, reload: reloadSched } = useApi<{ days: { date: string; free: number; used: number; closed: boolean }[]; jobDays: number; lengths?: Record<string, number> }>(`/admin/schedule?from=${from}`);
   const { data: settings } = useSettings();
   useOnJobsChanged(
     useCallback(() => {
@@ -78,7 +78,7 @@ export default function Schedule() {
           {placed.map((j) => {
             const start = Math.round((Date.parse(j.scheduled_date! + 'T00:00:00Z') - Date.parse(from + 'T00:00:00Z')) / 86400000);
             const s = Math.max(0, start);
-            const e = Math.min(DAYS, start + span);
+            const e = Math.min(DAYS, start + (sched?.lengths?.[j.id] || span));
             if (e <= 0 || s >= DAYS || (j.bay ?? 0) > bays) return null;
             return (
               <button key={j.id} className={`sched-job st-${j.status}`} style={{ gridRow: (j.bay as number) + 1, gridColumn: `${s + 2} / ${e + 2}` }} onClick={() => openJob(j.id)} title={`${j.customer_name} — ${j.vehicle}`}>

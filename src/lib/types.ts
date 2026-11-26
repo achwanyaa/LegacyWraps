@@ -66,6 +66,7 @@ export interface Job {
   service: string | null;
   last_contact_at: string | null;
   next_follow_up_at: string | null;
+  days?: number | null;
   scheduled_date: string | null;
   bay: number | null;
   notes: string | null;

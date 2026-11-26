@@ -116,7 +116,108 @@ export function JobDrawerHost() {
   return <JobDrawer key={id} id={Number(id)} onClose={close} />;
 }
 
-type Detail = Job & { events: JobEvent[]; quotes: Quote[]; customer: { id: number; name: string } | null };
+interface Payment {
+  id: number;
+  amount: number;
+  method: 'cash' | 'mpesa' | 'bank' | 'card';
+  kind: 'deposit' | 'payment' | 'balance' | 'refund';
+  reference: string | null;
+  paid_at: string;
+  staff?: { name: string } | null;
+}
+type Detail = Job & {
+  events: JobEvent[];
+  quotes: Quote[];
+  customer: { id: number; name: string } | null;
+  payments: Payment[];
+  paid: number;
+  balance: number;
+  length: number;
+};
+const METHOD_LABEL = { cash: 'Cash', mpesa: 'M-Pesa', bank: 'Bank', card: 'Card' } as const;
+
+/** Staff record money in; only the owner can remove a payment. Every change is logged. */
+function Payments({ job, onChange, owner }: { job: Detail; onChange: (label: string) => void; owner: boolean }) {
+  const [f, setF] = useState({ amount: '', method: 'mpesa', kind: job.paid ? 'balance' : 'deposit', reference: '' });
+  const [busy, setBusy] = useState(false);
+  const price = job.final_price ?? job.estimate;
+  const add = async () => {
+    setBusy(true);
+    try {
+      await api(`/admin/jobs/${job.id}/payments`, { body: { ...f, amount: Number(f.amount) } });
+      setF({ amount: '', method: f.method, kind: 'balance', reference: '' });
+      onChange('Payment recorded');
+    } catch (e) {
+      onChange((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="d-sec">
+      <div className="d-label mono">Payments</div>
+      <div className="pay-sum">
+        <span>
+          Price <b className="mono">{money(price)}</b>
+        </span>
+        <span>
+          Paid <b className="mono">{money(job.paid)}</b>
+        </span>
+        <span className={job.balance > 0 ? 'owed' : 'clear'}>
+          {job.balance > 0 ? 'Owes' : job.balance < 0 ? 'Overpaid' : 'Paid in full'} {job.balance !== 0 && <b className="mono">{money(Math.abs(job.balance))}</b>}
+        </span>
+      </div>
+      <div className="pay-form">
+        <input className="input" inputMode="numeric" placeholder={job.balance > 0 ? String(job.balance) : 'Amount'} value={f.amount} onChange={(e) => setF({ ...f, amount: e.target.value.replace(/[^\d]/g, '') })} aria-label="Amount (KES)" />
+        <select className="input" value={f.method} onChange={(e) => setF({ ...f, method: e.target.value })} aria-label="Method">
+          {Object.entries(METHOD_LABEL).map(([k, v]) => (
+            <option key={k} value={k}>
+              {v}
+            </option>
+          ))}
+        </select>
+        <select className="input" value={f.kind} onChange={(e) => setF({ ...f, kind: e.target.value })} aria-label="Type">
+          <option value="deposit">Deposit</option>
+          <option value="payment">Part payment</option>
+          <option value="balance">Balance</option>
+          <option value="refund">Refund</option>
+        </select>
+        <input className="input" placeholder={f.method === 'mpesa' ? 'M-Pesa code' : 'Reference'} value={f.reference} onChange={(e) => setF({ ...f, reference: e.target.value })} aria-label="Reference" />
+        <button className="btn accent sm" disabled={busy || !Number(f.amount)} onClick={add}>
+          Record payment
+        </button>
+      </div>
+      {job.payments.length > 0 && (
+        <ul className="quotes">
+          {job.payments.map((p) => (
+            <li key={p.id}>
+              <span className="mono">{money(p.amount)}</span>
+              <span className="mute">
+                {fmtDate(p.paid_at, { day: 'numeric', month: 'short' })} · {METHOD_LABEL[p.method]} · {p.kind}
+                {p.reference ? ` · ${p.reference}` : ''}
+                {p.staff?.name ? ` · ${p.staff.name}` : ''}
+              </span>
+              {owner ? (
+                <button
+                  className="btn sm ghost"
+                  onClick={async () => {
+                    if (!confirm(`Remove the ${money(p.amount)} payment? This is logged.`)) return;
+                    await api(`/admin/payments/${p.id}`, { method: 'DELETE' });
+                    onChange('Payment removed');
+                  }}
+                >
+                  Remove
+                </button>
+              ) : (
+                <span />
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
 const toDateInput = (iso: string | null | undefined) => (iso ? new Date(iso).toLocaleDateString('en-CA') : '');
 
 function JobDrawer({ id, onClose }: { id: number; onClose: () => void }) {
@@ -144,6 +245,7 @@ function JobDrawer({ id, onClose }: { id: number; onClose: () => void }) {
         source: job.source,
         service: job.service,
         next_follow_up_at: toDateInput(job.next_follow_up_at),
+        days: job.days,
       });
   }, [job]);
   useEffect(() => {
@@ -252,6 +354,10 @@ function JobDrawer({ id, onClose }: { id: number; onClose: () => void }) {
                 <span>Show on homepage</span>
               </label>
               <label className="field">
+                <span>Days in the bay</span>
+                <input className="input" inputMode="numeric" value={form.days ?? ''} onChange={set('days')} placeholder={`${job.length} (standard)`} />
+              </label>
+              <label className="field">
                 <span>Name</span>
                 <input className="input" value={form.customer_name ?? ''} onChange={set('customer_name')} />
               </label>
@@ -309,6 +415,7 @@ function JobDrawer({ id, onClose }: { id: number; onClose: () => void }) {
                     source: form.source,
                     service: form.service || null,
                     next_follow_up_at: form.next_follow_up_at || null,
+                    days: form.days === ('' as unknown) || form.days == null ? null : Number(form.days),
                   })
                 }
               >
@@ -381,6 +488,18 @@ function JobDrawer({ id, onClose }: { id: number; onClose: () => void }) {
                 </ul>
               )}
             </div>
+
+            {(job.payments.length > 0 || !['inquiry', 'lost'].includes(job.status)) && (
+              <Payments
+                job={job}
+                owner={me?.role === 'owner'}
+                onChange={async (label) => {
+                  await reload();
+                  notifyJobsChanged();
+                  setMsg(label);
+                }}
+              />
+            )}
 
             {['inquiry', 'quoted', 'lost'].includes(job.status) && (
               <Quotes

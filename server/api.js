@@ -25,7 +25,7 @@ import {
   leadIntakeKey,
   upsertCustomer,
 } from './db.js';
-import { estimate, normalizeConfig, vehicleLabel, STATUSES, FINISHES, LEAD_SOURCES, SERVICES, normPhone } from '../shared/catalog.js';
+import { estimate, normalizeConfig, vehicleLabel, STATUSES, FINISHES, LEAD_SOURCES, SERVICES, normPhone, money } from '../shared/catalog.js';
 
 export const api = express.Router();
 const STATUS_IDS = STATUSES.map((s) => s.id);
@@ -129,10 +129,15 @@ const jobOut = (r) => {
 };
 
 // ---------- availability ----------
+const ACTIVE = ['booked', 'in_bay', 'curing', 'ready'];
+/** Days a job holds its bay: its own length, else its service's standard length. */
+const lengthOf = (j, serviceDays) => j.days || serviceDays[j.service] || JOB_DAYS;
+const dayDiff = (a, b) => Math.round((Date.parse(a + 'T00:00:00Z') - Date.parse(b + 'T00:00:00Z')) / 86400000);
 async function occupancy(fromIso, days) {
-  const [baysSetting, rowsRes] = await Promise.all([
+  const [baysSetting, rowsRes, { serviceDays }] = await Promise.all([
     getSetting('bays', 4),
-    sb.from('jobs').select('scheduled_date').not('scheduled_date', 'is', null).in('status', ['booked', 'in_bay', 'curing', 'ready']),
+    sb.from('jobs').select('scheduled_date, days, service').not('scheduled_date', 'is', null).in('status', ACTIVE),
+    adminSettings(),
   ]);
   const bays = Number(baysSetting) || 4;
   const rows = must(rowsRes);
@@ -142,15 +147,17 @@ async function occupancy(fromIso, days) {
     const d = new Date(start.getTime() + i * 86400000);
     const iso = d.toISOString().slice(0, 10);
     const used = rows.filter((r) => {
-      const diff = Math.round((d - new Date(r.scheduled_date + 'T00:00:00Z')) / 86400000);
-      return diff >= 0 && diff < JOB_DAYS;
+      const diff = dayDiff(iso, r.scheduled_date);
+      return diff >= 0 && diff < lengthOf(r, serviceDays);
     }).length;
     const closed = d.getUTCDay() === 0;
     out.push({ date: iso, free: closed ? 0 : Math.max(0, bays - used), used, bays, closed });
   }
   return out;
 }
-const todayIso = () => new Date().toISOString().slice(0, 10);
+// The shop runs on Nairobi time (UTC+3, no daylight saving).
+const nairobiDate = (ms = Date.now()) => new Date(ms + 3 * 3600000).toISOString().slice(0, 10);
+const todayIso = () => nairobiDate();
 
 // ---------- public ----------
 api.get('/settings', async (_req, res) => res.json(await publicSettings()));
@@ -275,12 +282,63 @@ api.get('/admin/jobs', async (_req, res) => {
 api.get('/admin/jobs/:id', async (req, res) => {
   const r = must(await sb.from('jobs').select('*').eq('id', Number(req.params.id)).maybeSingle());
   if (!r) return res.status(404).json({ error: 'Not found' });
-  const [events, quotes, customer] = await Promise.all([
+  const [events, quotes, customer, payments, { serviceDays }] = await Promise.all([
     sb.from('job_events').select('*, staff(name)').eq('job_id', r.id).order('created_at', { ascending: false }).order('id', { ascending: false }),
     sb.from('quotes').select('*, staff(name)').eq('job_id', r.id).order('sent_at', { ascending: false }),
     r.customer_id ? sb.from('customers').select('id, name, phone, email').eq('id', r.customer_id).maybeSingle() : { data: null },
+    sb.from('payments').select('*, staff(name)').eq('job_id', r.id).order('paid_at', { ascending: false }),
+    adminSettings(),
   ]);
-  res.json({ ...jobOut(r), events: must(events), quotes: must(quotes), customer: customer.data });
+  const pays = must(payments);
+  const paid = pays.reduce((s, p) => s + p.amount, 0);
+  const price = r.final_price ?? r.estimate;
+  res.json({ ...jobOut(r), events: must(events), quotes: must(quotes), customer: customer.data, payments: pays, paid, balance: price - paid, length: lengthOf(r, serviceDays) });
+});
+
+// ---------- payments: staff record them, only the owner corrects or removes them ----------
+const METHODS = ['cash', 'mpesa', 'bank', 'card'];
+const KINDS = ['deposit', 'payment', 'balance', 'refund'];
+function readPayment(b) {
+  const amount = Math.round(Number(b.amount));
+  if (!amount) return { error: 'Enter the amount.' };
+  const kind = KINDS.includes(b.kind) ? b.kind : 'payment';
+  return {
+    amount: kind === 'refund' ? -Math.abs(amount) : Math.abs(amount),
+    method: METHODS.includes(b.method) ? b.method : 'mpesa',
+    kind,
+    reference: String(b.reference || '').trim().toUpperCase().slice(0, 40) || null,
+    ...(/^\d{4}-\d{2}-\d{2}/.test(b.paid_at || '') ? { paid_at: new Date(b.paid_at).toISOString() } : {}),
+  };
+}
+api.post('/admin/jobs/:id/payments', async (req, res) => {
+  const id = Number(req.params.id);
+  const job = must(await sb.from('jobs').select('id, status, customer_name').eq('id', id).maybeSingle());
+  if (!job) return res.status(404).json({ error: 'Not found' });
+  const p = readPayment(req.body || {});
+  if (p.error) return res.status(400).json({ error: p.error });
+  if (p.reference && must(await sb.from('payments').select('id').eq('reference', p.reference).maybeSingle()))
+    return res.status(400).json({ error: `Reference ${p.reference} is already recorded.` });
+  const row = must(await sb.from('payments').insert({ ...p, job_id: id, staff_id: req.staff.id }).select('*').single());
+  await addEvent(id, null, `${p.kind === 'refund' ? 'Refund' : 'Payment'} of ${money(Math.abs(p.amount))} recorded (${p.method === 'mpesa' ? 'M-Pesa' : p.method}).`, false, nowIso(), req.staff.id);
+  must(await sb.from('jobs').update({ updated_at: nowIso() }).eq('id', id));
+  await audit(req.staff.id, 'create', 'payment', row.id, null, row);
+  res.status(201).json(row);
+});
+api.patch('/admin/payments/:id', requireOwner, async (req, res) => {
+  const cur = must(await sb.from('payments').select('*').eq('id', Number(req.params.id)).maybeSingle());
+  if (!cur) return res.status(404).json({ error: 'Not found' });
+  const p = readPayment({ ...cur, ...req.body, paid_at: req.body?.paid_at ?? cur.paid_at });
+  if (p.error) return res.status(400).json({ error: p.error });
+  const row = must(await sb.from('payments').update(p).eq('id', cur.id).select('*').single());
+  await audit(req.staff.id, 'update', 'payment', cur.id, cur, row);
+  res.json(row);
+});
+api.delete('/admin/payments/:id', requireOwner, async (req, res) => {
+  const cur = must(await sb.from('payments').select('*').eq('id', Number(req.params.id)).maybeSingle());
+  if (!cur) return res.status(404).json({ error: 'Not found' });
+  must(await sb.from('payments').delete().eq('id', cur.id));
+  await audit(req.staff.id, 'delete', 'payment', cur.id, cur, null);
+  res.json({ ok: true });
 });
 
 // Open requests and quotes, with what needs doing first.
@@ -418,6 +476,20 @@ api.patch('/admin/jobs/:id', async (req, res) => {
   if (b.scheduled_date !== undefined) next.scheduled_date = /^\d{4}-\d{2}-\d{2}$/.test(b.scheduled_date || '') ? b.scheduled_date : null;
   if (b.bay !== undefined) next.bay = b.bay === null || b.bay === '' ? null : Number(b.bay);
   if (b.featured !== undefined) next.featured = !!b.featured;
+  if (b.days !== undefined) next.days = b.days === null || b.days === '' ? null : Math.max(1, Math.min(30, Math.round(Number(b.days)) || 1));
+  // A bay holds one car at a time.
+  const after = { ...cur, ...next };
+  const placementChanged = ['status', 'scheduled_date', 'bay', 'days', 'service'].some((k) => k in next && next[k] !== cur[k]);
+  if (placementChanged && ACTIVE.includes(after.status) && after.scheduled_date && after.bay) {
+    const { serviceDays } = await adminSettings();
+    const others = must(await sb.from('jobs').select('id, code, customer_name, scheduled_date, days, service').eq('bay', after.bay).in('status', ACTIVE).neq('id', id).not('scheduled_date', 'is', null));
+    const len = lengthOf(after, serviceDays);
+    const clash = others.find((o) => {
+      const d = dayDiff(o.scheduled_date, after.scheduled_date);
+      return d < len && -d < lengthOf(o, serviceDays);
+    });
+    if (clash) return res.status(409).json({ error: `Bay ${after.bay} is taken by ${clash.customer_name} (${clash.code}) from ${clash.scheduled_date}. Pick another bay or date.` });
+  }
   if (b.lost_reason !== undefined) next.lost_reason = String(b.lost_reason ?? '').trim().slice(0, 300) || null;
   if (Object.keys(next).length) {
     next.updated_at = nowIso();
@@ -447,6 +519,8 @@ api.post('/admin/jobs/:id/events', async (req, res) => {
 
 api.delete('/admin/jobs/:id', requireOwner, async (req, res) => {
   const r = must(await sb.from('jobs').select('*').eq('id', Number(req.params.id)).maybeSingle());
+  const { count: paidCount } = await sb.from('payments').select('id', { count: 'exact', head: true }).eq('job_id', Number(req.params.id));
+  if (paidCount) return res.status(400).json({ error: 'This job has payments recorded. Mark it lost instead, or remove the payments first.' });
   if (r) await audit(req.staff.id, 'delete', 'job', r.id, r, null);
   if (r?.snapshot_path) await sb.storage.from('snapshots').remove([r.snapshot_path]);
   must(await sb.from('jobs').delete().eq('id', Number(req.params.id)));
@@ -455,7 +529,12 @@ api.delete('/admin/jobs/:id', requireOwner, async (req, res) => {
 
 api.get('/admin/schedule', async (req, res) => {
   const from = /^\d{4}-\d{2}-\d{2}$/.test(req.query.from || '') ? req.query.from : todayIso();
-  res.json({ days: await occupancy(from, 14), jobDays: JOB_DAYS });
+  const [days, rows, { serviceDays }] = await Promise.all([
+    occupancy(from, 14),
+    sb.from('jobs').select('id, days, service').in('status', ACTIVE),
+    adminSettings(),
+  ]);
+  res.json({ days, jobDays: JOB_DAYS, lengths: Object.fromEntries(must(rows).map((j) => [j.id, lengthOf(j, serviceDays)])) });
 });
 
 const FINISH_IDS = FINISHES.map((f) => f.id);
@@ -523,6 +602,8 @@ api.put('/admin/settings', requireOwner, async (req, res) => {
   }
   if (b.followUpHours !== undefined) patch.followUpHours = Math.max(1, Math.min(72, Number(b.followUpHours) || ADMIN_SETTING_DEFAULTS.followUpHours));
   if (b.followUpDays !== undefined) patch.followUpDays = Math.max(1, Math.min(30, Number(b.followUpDays) || ADMIN_SETTING_DEFAULTS.followUpDays));
+  if (b.serviceDays && typeof b.serviceDays === 'object')
+    patch.serviceDays = Object.fromEntries(SERVICE_IDS.map((k) => [k, Math.max(1, Math.min(30, Math.round(Number(b.serviceDays[k])) || ADMIN_SETTING_DEFAULTS.serviceDays[k]))]));
   const all = async () => ({ ...(await publicSettings()), ...(await adminSettings()) });
   const before = await all();
   await setSettings(patch);
@@ -583,6 +664,48 @@ api.patch('/admin/staff/:id', requireOwner, async (req, res) => {
   res.json(staffOut(row));
 });
 
+/** The owner's five questions, plus the money view. */
+async function ownerDay() {
+  const [jobsRes, paysRes] = await Promise.all([
+    sb.from('jobs').select('id, code, status, customer_name, phone, vehicle, service, bay, scheduled_date, estimate, final_price, last_contact_at, created_at'),
+    sb.from('payments').select('job_id, amount, paid_at'),
+  ]);
+  const jobs = must(jobsRes);
+  const pays = must(paysRes);
+  const today = todayIso();
+  const paidBy = {};
+  for (const p of pays) paidBy[p.job_id] = (paidBy[p.job_id] || 0) + p.amount;
+  const brief = (j) => ({ id: j.id, code: j.code, customer_name: j.customer_name, phone: j.phone, vehicle: j.vehicle, status: j.status, bay: j.bay });
+  const price = (j) => j.final_price ?? j.estimate;
+  const owing = jobs
+    .filter((j) => [...ACTIVE, 'delivered'].includes(j.status))
+    .map((j) => ({ ...brief(j), price: price(j), paid: paidBy[j.id] || 0, owed: price(j) - (paidBy[j.id] || 0) }))
+    .filter((j) => j.owed > 0)
+    .sort((a, b) => (a.status === 'delivered' ? -1 : 0) - (b.status === 'delivered' ? -1 : 0) || b.owed - a.owed);
+  const sumSince = (iso) => pays.filter((p) => nairobiDate(Date.parse(p.paid_at)) >= iso).reduce((s, p) => s + p.amount, 0);
+  const monthStart = today.slice(0, 8) + '01';
+  const serviceOf = Object.fromEntries(jobs.map((j) => [j.id, j.service || 'other']));
+  const byService = {};
+  for (const p of pays) if (nairobiDate(Date.parse(p.paid_at)) >= monthStart) byService[serviceOf[p.job_id]] = (byService[serviceOf[p.job_id]] || 0) + p.amount;
+  const waiting = jobs.filter((j) => j.status === 'inquiry' && !j.last_contact_at).sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at));
+  return {
+    day: {
+      inBays: jobs.filter((j) => ['in_bay', 'curing', 'ready'].includes(j.status)).map(brief).sort((a, b) => (a.bay || 99) - (b.bay || 99)),
+      arriving: jobs.filter((j) => j.status === 'booked' && j.scheduled_date === today).map(brief),
+      waiting: { count: waiting.length, oldest: waiting.slice(0, 3).map(brief) },
+      takenToday: sumSince(today),
+      owed: { total: owing.reduce((s, j) => s + j.owed, 0), jobs: owing.slice(0, 8) },
+    },
+    money: {
+      today: sumSince(today),
+      week: sumSince(nairobiDate(Date.now() - 6 * 86400000)),
+      month: sumSince(monthStart),
+      expected: owing.filter((j) => ACTIVE.includes(j.status)).reduce((s, j) => s + j.owed, 0),
+      byService: Object.entries(byService).map(([service, amount]) => ({ service, amount })).sort((a, b) => b.amount - a.amount),
+    },
+  };
+}
+
 api.get('/admin/stats', async (_req, res) => {
   // Independent queries in parallel: each Supabase round-trip is ~200ms from Nairobi.
   const [jobsRes, delivRes, films, activityRes, todayOcc] = await Promise.all([
@@ -642,6 +765,7 @@ api.get('/admin/stats', async (_req, res) => {
     topFilms,
     activity,
     today: todayOcc[0],
+    ...(await ownerDay()),
   });
 });
 
