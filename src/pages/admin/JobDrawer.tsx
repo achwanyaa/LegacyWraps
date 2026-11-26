@@ -2,8 +2,82 @@ import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router';
 import { api, useApi, useFilms, useSettings, whatsappLink, fmtDate, timeAgo, encodeBuild } from '../../lib/api';
 import { Swatch } from '../../components/Swatch';
-import { STATUSES, WHEELS, CALIPERS, TINT, estimate, money, modelById, modelName } from '../../../shared/catalog.js';
-import type { Film, Job, JobEvent, StatusId } from '../../lib/types';
+import { STATUSES, WHEELS, CALIPERS, TINT, LEAD_SOURCES, SERVICES, estimate, money, modelById, modelName } from '../../../shared/catalog.js';
+import type { Film, Job, JobEvent, Quote, StatusId } from '../../lib/types';
+import { useMe } from './me';
+
+/** Send a price, then record whether it was won or lost. Each quote keeps the prices it was built from. */
+function Quotes({ job, onChange, trackUrl }: { job: Detail; onChange: (label: string) => void; trackUrl: string }) {
+  const [amount, setAmount] = useState(String(job.final_price ?? (job.estimate || '')));
+  const [note, setNote] = useState('');
+  const [busy, setBusy] = useState(false);
+  const first = job.customer_name.split(' ')[0];
+  const send = async () => {
+    setBusy(true);
+    try {
+      await api(`/admin/jobs/${job.id}/quotes`, { body: { amount: Number(amount), note } });
+      const text = `Hi ${first}, here is your Legacy Wraps quote for the ${job.vehicle || 'car'}: ${money(Number(amount))}.${note ? ` ${note}` : ''} You can follow it here: ${trackUrl}`;
+      if (job.phone) window.open(whatsappLink(job.phone, text), '_blank', 'noreferrer');
+      setNote('');
+      onChange('Quote saved');
+    } catch (e) {
+      onChange((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const decide = async (q: Quote, outcome: 'won' | 'lost') => {
+    const lost_reason = outcome === 'lost' ? window.prompt('Why was it lost? (price, timing, went elsewhere, no reply...)') : null;
+    if (outcome === 'lost' && lost_reason === null) return;
+    await api(`/admin/quotes/${q.id}`, { method: 'PATCH', body: { outcome, lost_reason } });
+    onChange(outcome === 'won' ? 'Marked won. Book a date when the deposit is in.' : 'Marked lost');
+  };
+  return (
+    <div className="d-sec">
+      <div className="d-label mono">Quotes</div>
+      <div className="quote-form">
+        <label className="field">
+          <span>Price (KES)</span>
+          <input className="input" inputMode="numeric" value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^\d]/g, ''))} />
+        </label>
+        <label className="field">
+          <span>Note for the customer</span>
+          <input className="input" value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. includes door shuts, 5-day turnaround" />
+        </label>
+        <button className="btn accent sm" disabled={busy || !(Number(amount) > 0)} onClick={send}>
+          {job.phone ? 'Save and send on WhatsApp' : 'Save quote'}
+        </button>
+      </div>
+      {job.quotes.length > 0 && (
+        <ul className="quotes">
+          {job.quotes.map((q) => (
+            <li key={q.id} className={`q-${q.outcome}`}>
+              <span className="mono">{money(q.amount)}</span>
+              <span className="mute">
+                {fmtDate(q.sent_at, { day: 'numeric', month: 'short' })}
+                {q.staff?.name ? ` · ${q.staff.name}` : ''}
+                {q.note ? ` · ${q.note}` : ''}
+                {q.lost_reason ? ` · ${q.lost_reason}` : ''}
+              </span>
+              {q.outcome === 'open' ? (
+                <span className="row-btns">
+                  <button className="btn sm" onClick={() => decide(q, 'won')}>
+                    Won
+                  </button>
+                  <button className="btn sm ghost" onClick={() => decide(q, 'lost')}>
+                    Lost
+                  </button>
+                </span>
+              ) : (
+                <span className={`q-out mono`}>{q.outcome}</span>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
 
 export const JOBS_CHANGED = 'lw:jobs-changed';
 export const notifyJobsChanged = () => window.dispatchEvent(new Event(JOBS_CHANGED));
@@ -42,7 +116,8 @@ export function JobDrawerHost() {
   return <JobDrawer key={id} id={Number(id)} onClose={close} />;
 }
 
-type Detail = Job & { events: JobEvent[] };
+type Detail = Job & { events: JobEvent[]; quotes: Quote[]; customer: { id: number; name: string } | null };
+const toDateInput = (iso: string | null | undefined) => (iso ? new Date(iso).toLocaleDateString('en-CA') : '');
 
 function JobDrawer({ id, onClose }: { id: number; onClose: () => void }) {
   const { data: job, reload, error } = useApi<Detail>(`/admin/jobs/${id}`);
@@ -53,9 +128,23 @@ function JobDrawer({ id, onClose }: { id: number; onClose: () => void }) {
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState('');
   const [msg, setMsg] = useState<string | null>(null);
+  const me = useMe();
 
   useEffect(() => {
-    if (job) setForm({ final_price: job.final_price, scheduled_date: job.scheduled_date, bay: job.bay, notes: job.notes, featured: job.featured, phone: job.phone, email: job.email, customer_name: job.customer_name });
+    if (job)
+      setForm({
+        final_price: job.final_price,
+        scheduled_date: job.scheduled_date,
+        bay: job.bay,
+        notes: job.notes,
+        featured: job.featured,
+        phone: job.phone,
+        email: job.email,
+        customer_name: job.customer_name,
+        source: job.source,
+        service: job.service,
+        next_follow_up_at: toDateInput(job.next_follow_up_at),
+      });
   }, [job]);
   useEffect(() => {
     const k = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
@@ -162,6 +251,44 @@ function JobDrawer({ id, onClose }: { id: number; onClose: () => void }) {
                 <input type="checkbox" checked={!!form.featured} onChange={(e) => setForm((f) => ({ ...f, featured: e.target.checked }))} />
                 <span>Show on homepage</span>
               </label>
+              <label className="field">
+                <span>Name</span>
+                <input className="input" value={form.customer_name ?? ''} onChange={set('customer_name')} />
+              </label>
+              <label className="field">
+                <span>Phone</span>
+                <input className="input" type="tel" value={form.phone ?? ''} onChange={set('phone')} />
+              </label>
+              <label className="field">
+                <span>Email</span>
+                <input className="input" type="email" value={form.email ?? ''} onChange={set('email')} />
+              </label>
+              <label className="field">
+                <span>Came from</span>
+                <select className="input" value={form.source ?? 'other'} onChange={set('source')}>
+                  {LEAD_SOURCES.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="field">
+                <span>Service</span>
+                <select className="input" value={form.service ?? ''} onChange={set('service')}>
+                  <option value="">Not set</option>
+                  {SERVICES.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="field">
+                <span>Next follow-up</span>
+                <input className="input" type="date" value={form.next_follow_up_at ?? ''} onChange={set('next_follow_up_at')} />
+              </label>
+              {job.source_detail && <p className="mute full">Source detail: {job.source_detail}</p>}
               <label className="field full">
                 <span>Internal notes</span>
                 <textarea className="input" value={form.notes ?? ''} onChange={set('notes')} />
@@ -176,6 +303,12 @@ function JobDrawer({ id, onClose }: { id: number; onClose: () => void }) {
                     bay: form.bay === ('' as unknown) ? null : form.bay,
                     notes: form.notes,
                     featured: form.featured,
+                    customer_name: form.customer_name,
+                    phone: form.phone,
+                    email: form.email,
+                    source: form.source,
+                    service: form.service || null,
+                    next_follow_up_at: form.next_follow_up_at || null,
                   })
                 }
               >
@@ -249,6 +382,18 @@ function JobDrawer({ id, onClose }: { id: number; onClose: () => void }) {
               )}
             </div>
 
+            {['inquiry', 'quoted', 'lost'].includes(job.status) && (
+              <Quotes
+                job={job}
+                trackUrl={trackUrl}
+                onChange={async (label) => {
+                  await reload();
+                  notifyJobsChanged();
+                  setMsg(label);
+                }}
+              />
+            )}
+
             <div className="d-sec">
               <div className="d-label mono">Updates</div>
               <form
@@ -272,13 +417,15 @@ function JobDrawer({ id, onClose }: { id: number; onClose: () => void }) {
                     <span className="mono mute">{fmtDate(ev.created_at, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
                     <span>
                       {ev.status && <StatusBadge status={ev.status} />} {ev.message}
+                      {ev.staff?.name && <span className="mute"> · {ev.staff.name}</span>}
+                      {!ev.public && <span className="mute"> · internal</span>}
                     </span>
                   </li>
                 ))}
               </ol>
             </div>
 
-            <div className="d-sec">
+            {me?.role === 'owner' && <div className="d-sec">
               <button
                 className="danger"
                 onClick={async () => {
@@ -290,7 +437,7 @@ function JobDrawer({ id, onClose }: { id: number; onClose: () => void }) {
               >
                 Delete job
               </button>
-            </div>
+            </div>}
           </>
         )}
         {msg && <div className="toast">{msg}</div>}

@@ -51,7 +51,7 @@ export interface Job {
   code: string;
   status: StatusId;
   customer_name: string;
-  email: string;
+  email: string | null;
   phone: string | null;
   vehicle: string | null;
   message: string | null;
@@ -60,6 +60,12 @@ export interface Job {
   estimate: number;
   final_price: number | null;
   lost_reason?: string | null;
+  customer_id?: number | null;
+  source: LeadSource;
+  source_detail: string | null;
+  service: string | null;
+  last_contact_at: string | null;
+  next_follow_up_at: string | null;
   scheduled_date: string | null;
   bay: number | null;
   notes: string | null;
@@ -76,6 +82,41 @@ export interface JobEvent {
   message: string;
   public: boolean;
   created_at: string;
+  staff?: { name: string } | null;
+}
+
+export type LeadSource = 'studio' | 'website' | 'instagram' | 'whatsapp' | 'call' | 'walk_in' | 'referral' | 'other';
+
+export interface Lead extends Job {
+  needs_reply: boolean;
+  overdue_reply: boolean;
+  follow_up_due: boolean;
+}
+
+export interface Quote {
+  id: number;
+  job_id: number;
+  amount: number;
+  note: string | null;
+  outcome: 'open' | 'won' | 'lost';
+  lost_reason: string | null;
+  sent_at: string;
+  decided_at: string | null;
+  staff?: { name: string } | null;
+}
+
+export interface Customer {
+  id: number;
+  name: string;
+  phone: string | null;
+  email: string | null;
+  notes: string | null;
+  created_at: string;
+  jobs: number;
+  open: number;
+  spend: number;
+  cars: string[];
+  last_at: string;
 }
 
 export interface Settings {

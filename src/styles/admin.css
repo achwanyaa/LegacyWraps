@@ -929,3 +929,115 @@ blockquote {
     display: none;
   }
 }
+
+.st-lost { --s: #b05050; }
+.st-no_show { --s: #9a7a50; }
+
+/* ---------- leads ---------- */
+.lead-add {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  padding: 18px;
+  margin-bottom: 14px;
+  align-items: end;
+}
+.lead-add .card-title {
+  grid-column: 1 / -1;
+}
+.lead-list {
+  display: grid;
+  gap: 10px;
+}
+.lead {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  border-left: 3px solid transparent;
+}
+.lead.flag-late { border-left-color: #ff5a1f; }
+.lead.flag-new { border-left-color: #f5b83d; }
+.lead.flag-due { border-left-color: #7aa2ff; }
+.lead-main {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  background: none;
+  border: 0;
+  color: inherit;
+  padding: 0;
+  cursor: pointer;
+  display: grid;
+  gap: 4px;
+}
+.lead-main p { margin: 0; }
+.lead-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.lead-meta { font-size: 0.72rem; }
+.lead-meta .src {
+  border: 1px solid var(--line);
+  border-radius: 99px;
+  padding: 1px 7px;
+  margin-right: 4px;
+}
+.lead-flag {
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+.flag-late .lead-flag { color: #ff7a45; }
+.flag-new .lead-flag { color: #f5b83d; }
+.flag-due .lead-flag { color: #9ab8ff; }
+.lead-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+@media (max-width: 720px) {
+  .lead-add { grid-template-columns: 1fr 1fr; }
+  .lead { flex-direction: column; align-items: stretch; }
+  .lead-actions > * { flex: 1; text-align: center; }
+}
+
+/* ---------- customers ---------- */
+.row-click { cursor: pointer; }
+.row-click:hover td { background: rgba(255, 255, 255, 0.03); }
+.cust-jobs { display: grid; gap: 4px; padding: 4px 0; }
+.cust-job {
+  display: grid;
+  grid-template-columns: 90px 1fr auto 110px;
+  gap: 12px;
+  align-items: center;
+  text-align: left;
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+  color: inherit;
+  cursor: pointer;
+}
+
+/* ---------- quotes in the job drawer ---------- */
+.quote-form {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  gap: 10px;
+  align-items: end;
+}
+.quote-form .btn { grid-column: 1 / -1; }
+.quotes { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.quotes li {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 10px;
+  align-items: center;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.quotes .q-lost { opacity: 0.6; }
+.q-out { text-transform: uppercase; font-size: 0.7rem; }
+.q-won .q-out { color: #5fd38d; }

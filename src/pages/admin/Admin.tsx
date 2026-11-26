@@ -1,24 +1,18 @@
-import { createContext, lazy, Suspense, useContext, useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { NavLink, Route, Routes, Link } from 'react-router';
 import { api } from '../../lib/api';
 import { JobDrawerHost } from './JobDrawer';
+import { MeContext, type StaffMe } from './me';
 import '../../styles/admin.css';
 
 const Overview = lazy(() => import('./Overview'));
 const Pipeline = lazy(() => import('./Pipeline'));
+const Leads = lazy(() => import('./Leads'));
+const Customers = lazy(() => import('./Customers'));
 const Schedule = lazy(() => import('./Schedule'));
 const Films = lazy(() => import('./Films'));
 const SettingsPage = lazy(() => import('./SettingsPage'));
 
-export interface StaffMe {
-  id: number;
-  name: string;
-  login: string;
-  role: 'owner' | 'staff';
-}
-const MeContext = createContext<StaffMe | null>(null);
-/** The signed-in staff member (null outside the admin shell). */
-export const useMe = () => useContext(MeContext);
 
 function Login({ onDone }: { onDone: (me: StaffMe) => void }) {
   const [login, setLogin] = useState('');
@@ -66,7 +60,9 @@ function Login({ onDone }: { onDone: (me: StaffMe) => void }) {
 
 const NAV = [
   ['', 'Overview', 'M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z'],
+  ['leads', 'Leads', 'M4 4h16v12H5.2L4 17.2V4zm0-2a2 2 0 00-2 2v18l4-4h14a2 2 0 002-2V4a2 2 0 00-2-2H4zm3 5h10v2H7V7zm0 4h7v2H7v-2z'],
   ['pipeline', 'Pipeline', 'M3 4h4v16H3V4zm7 0h4v10h-4V4zm7 0h4v13h-4V4z'],
+  ['customers', 'Customers', 'M9 12a4 4 0 100-8 4 4 0 000 8zm0 2c-3.3 0-7 1.7-7 4v2h14v-2c0-2.3-3.7-4-7-4zm8-2a3 3 0 100-6 3 3 0 000 6zm1 2h-.7A5 5 0 0119 18v2h3v-2c0-2-2-3.6-4-4z'],
   ['schedule', 'Schedule', 'M7 2v2H4v18h16V4h-3V2h-2v2H9V2H7zm-1 8h12v10H6V10z'],
   ['films', 'Films', 'M12 2a10 10 0 100 20 10 10 0 000-20zm0 4a6 6 0 110 12 6 6 0 010-12z'],
   ['settings', 'Settings', 'M12 8a4 4 0 100 8 4 4 0 000-8zm8.9 5l2-1.6-2-3.4-2.4.8a8 8 0 00-1.7-1L16.4 5h-4l-.4 2.8a8 8 0 00-1.7 1l-2.4-.8-2 3.4 2 1.6a8 8 0 000 2l-2 1.6 2 3.4 2.4-.8a8 8 0 001.7 1l.4 2.8h4l.4-2.8a8 8 0 001.7-1l2.4.8 2-3.4-2-1.6a8 8 0 000-2z'],
@@ -149,7 +145,9 @@ export default function Admin() {
         >
           <Routes>
             <Route index element={<Overview />} />
+            <Route path="leads" element={<Leads />} />
             <Route path="pipeline" element={<Pipeline />} />
+            <Route path="customers" element={<Customers />} />
             <Route path="schedule" element={<Schedule />} />
             <Route path="films" element={<Films />} />
             <Route path="settings" element={<SettingsPage />} />

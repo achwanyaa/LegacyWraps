@@ -92,7 +92,8 @@ function QuoteModal({ cfg, total, onClose, snap }: { cfg: BuildConfig; total: nu
     setBusy(true);
     setErr(null);
     try {
-      const r = await api<{ code: string }>('/quote', { body: { ...form, config: cfg, snapshot: snap() } });
+      const utm = Object.fromEntries([...new URLSearchParams(location.search)].filter(([k]) => k.startsWith('utm_')));
+      const r = await api<{ code: string }>('/quote', { body: { ...form, ...utm, config: cfg, snapshot: snap() } });
       setDone(r);
     } catch (x) {
       setErr((x as Error).message);
@@ -137,11 +138,11 @@ function QuoteModal({ cfg, total, onClose, snap }: { cfg: BuildConfig; total: nu
               </label>
               <label className="field">
                 <span>Phone / WhatsApp</span>
-                <input className="input" type="tel" value={form.phone} onChange={set('phone')} placeholder="+254 7…" autoComplete="tel" />
+                <input className="input" type="tel" required={!form.email} value={form.phone} onChange={set('phone')} placeholder="07…" autoComplete="tel" />
               </label>
               <label className="field full">
-                <span>Email</span>
-                <input className="input" type="email" required value={form.email} onChange={set('email')} autoComplete="email" />
+                <span>Email (optional if you gave a phone)</span>
+                <input className="input" type="email" required={!form.phone} value={form.email} onChange={set('email')} autoComplete="email" />
               </label>
             </div>
             <div className="field">

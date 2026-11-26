@@ -113,6 +113,36 @@ export const STRIPES = [
   { id: 'twin', label: 'Twin rally' },
 ];
 
+/** Kenyan numbers to +2547XXXXXXXX; others keep their digits with a leading +. Mirrors lw_norm_phone() in the database. */
+export function normPhone(p) {
+  const d = String(p || '').replace(/\D/g, '');
+  if (!d) return null;
+  if (/^0[17]\d{8}$/.test(d)) return '+254' + d.slice(1);
+  if (/^[17]\d{8}$/.test(d)) return '+254' + d;
+  return '+' + d;
+}
+
+export const LEAD_SOURCES = [
+  { id: 'instagram', label: 'Instagram' },
+  { id: 'whatsapp', label: 'WhatsApp' },
+  { id: 'call', label: 'Phone call' },
+  { id: 'walk_in', label: 'Walk-in' },
+  { id: 'referral', label: 'Referral' },
+  { id: 'studio', label: 'Studio' },
+  { id: 'website', label: 'Website' },
+  { id: 'other', label: 'Other' },
+];
+
+export const SERVICES = [
+  { id: 'colour', label: 'Colour change wrap' },
+  { id: 'ppf', label: 'Paint protection film' },
+  { id: 'tint', label: 'Window tint' },
+  { id: 'ceramic', label: 'Ceramic coating' },
+  { id: 'chrome_delete', label: 'Chrome delete' },
+  { id: 'partial', label: 'Roof, bonnet or stripes' },
+  { id: 'other', label: 'Other' },
+];
+
 export const STATUSES = [
   { id: 'inquiry', label: 'Request', public: 'Request received', blurb: 'We have your build and we are reviewing it.' },
   { id: 'quoted', label: 'Quoted', public: 'Quote sent', blurb: 'Your final quote is ready. Check your inbox or WhatsApp.' },

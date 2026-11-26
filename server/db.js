@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
 import { need } from './env.js';
-import { estimate, normalizeConfig, vehicleLabel, STATUSES } from '../shared/catalog.js';
+import { estimate, normalizeConfig, vehicleLabel, STATUSES, normPhone } from '../shared/catalog.js';
 
 export const sb = createClient(need('SUPABASE_URL'), need('SUPABASE_SERVICE_ROLE_KEY'), {
   auth: { persistSession: false, autoRefreshToken: false },
@@ -94,6 +94,41 @@ export async function clearRate(key) {
 }
 
 export const normLogin = (s) => String(s || '').trim().toLowerCase().slice(0, 120);
+
+// Internal settings: never sent to the public site.
+export const ADMIN_SETTING_DEFAULTS = { followUpHours: 3, followUpDays: 2 };
+export async function adminSettings() {
+  const s = await loadSettings();
+  return Object.fromEntries(Object.entries(ADMIN_SETTING_DEFAULTS).map(([k, d]) => [k, s[k] ?? d]));
+}
+
+/** Secret the Instagram tool sends in the x-lw-key header. Created on first use. */
+export async function leadIntakeKey({ rotate = false } = {}) {
+  // Read straight from the table: the settings cache is per instance and would keep a rotated key alive.
+  const row = must(await sb.from('settings').select('value').eq('key', 'leadIntakeKey').maybeSingle());
+  if (row?.value && !rotate) return row.value;
+  const key = crypto.randomBytes(24).toString('base64url');
+  // On first use two instances may race; ignoreDuplicates keeps whichever key was written first.
+  if (rotate) await setSettings({ leadIntakeKey: key });
+  else must(await sb.from('settings').upsert({ key: 'leadIntakeKey', value: key }, { onConflict: 'key', ignoreDuplicates: true }));
+  return rotate ? key : (must(await sb.from('settings').select('value').eq('key', 'leadIntakeKey').single())).value;
+}
+
+/** Find or create the customer for this phone (else email); refresh their name and email. Returns the id or null. */
+export async function upsertCustomer({ name, phone, email }) {
+  const p = normPhone(phone);
+  const e = String(email || '').trim().toLowerCase() || null;
+  if (!p && !e) return null;
+  let row = p
+    ? must(await sb.from('customers').select('id, email').eq('phone', p).maybeSingle())
+    : must(await sb.from('customers').select('id, email').is('phone', null).ilike('email', e).maybeSingle());
+  if (row) {
+    must(await sb.from('customers').update({ name, email: e || row.email, updated_at: nowIso() }).eq('id', row.id));
+    return row.id;
+  }
+  row = must(await sb.from('customers').insert({ name, phone: p, email: e }).select('id').single());
+  return row.id;
+}
 
 /** First run after the staff migration: turn the old shared password into an "owner" account. Returns the login or null. */
 export async function ensureOwner() {

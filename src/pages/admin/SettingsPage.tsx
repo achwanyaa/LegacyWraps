@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api, useApi } from '../../lib/api';
 import type { Settings } from '../../lib/types';
-import { useMe, type StaffMe } from './Admin';
+import { useMe, type StaffMe } from './me';
 
 type StaffRow = StaffMe & { active: boolean };
 
