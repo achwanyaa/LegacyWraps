@@ -5,7 +5,8 @@ const base = process.env.BASE || 'http://localhost:5180';
 const b = await chromium.launch({ channel: 'msedge', args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
 for (const [label, vp, mobile] of [['d', { width: 1440, height: 900 }, false], ['m', { width: 390, height: 844 }, true]]) {
   const ctx = await b.newContext({ viewport: vp, deviceScaleFactor: 1, isMobile: mobile, hasTouch: mobile });
-  if (process.env.LOGIN) await ctx.request.post(base + '/api/admin/login', { data: { password: process.env.LOGIN } });
+  // LOGIN=<password> (owner account) or LOGIN_USER=<username> LOGIN=<password>
+  if (process.env.LOGIN) await ctx.request.post(base + '/api/admin/login', { data: { login: process.env.LOGIN_USER || '', password: process.env.LOGIN } });
   const p = await ctx.newPage();
   p.on('pageerror', (e) => console.log('[pageerror]', e.message));
   p.on('console', (m) => m.type() === 'error' && !m.text().includes('GL Driver') && console.log('[console]', m.text()));

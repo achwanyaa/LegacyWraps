@@ -16,7 +16,7 @@ export default function Pipeline() {
     const s = q.trim().toLowerCase();
     return (jobs || []).filter((j) => !s || `${j.customer_name} ${j.vehicle} ${j.code} ${j.phone}`.toLowerCase().includes(s));
   }, [jobs, q]);
-  const cols = (STATUSES as { id: StatusId; label: string }[]).filter((s) => !(hideDone && s.id === 'delivered'));
+  const cols = (STATUSES as { id: StatusId; label: string; closed?: boolean }[]).filter((s) => !(hideDone && (s.id === 'delivered' || s.closed)));
 
   async function move(id: number, status: StatusId) {
     const job = jobs?.find((j) => j.id === id);

@@ -43,7 +43,8 @@ export interface BuildConfig {
   env: EnvName;
 }
 
-export type StatusId = 'inquiry' | 'quoted' | 'booked' | 'in_bay' | 'curing' | 'ready' | 'delivered';
+// Must match STATUSES in shared/catalog.js (the database rule is generated from that list by npm run db:setup).
+export type StatusId = 'inquiry' | 'quoted' | 'booked' | 'in_bay' | 'curing' | 'ready' | 'delivered' | 'lost' | 'no_show';
 
 export interface Job {
   id: number;
@@ -58,6 +59,7 @@ export interface Job {
   config: BuildConfig;
   estimate: number;
   final_price: number | null;
+  lost_reason?: string | null;
   scheduled_date: string | null;
   bay: number | null;
   notes: string | null;

@@ -887,3 +887,45 @@ blockquote {
     grid-template-columns: 1fr;
   }
 }
+
+/* signed-in staff member above "Sign out" */
+.adm-me {
+  margin: auto 0 0.4rem;
+  font-size: 0.72rem;
+  padding: 0 0.75rem;
+}
+.adm-me + .adm-out {
+  margin-top: 0;
+}
+/* Lost / No-show sit apart from the forward stages */
+.closed-stages {
+  margin-top: 0.5rem;
+  align-items: center;
+  gap: 0.5rem;
+}
+.closed-stages .stage-btn.on {
+  background: #3a2222;
+  border-color: #7a3a3a;
+}
+.staff-add {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  align-items: end;
+}
+@media (max-width: 720px) {
+  .staff-add {
+    grid-template-columns: 1fr;
+  }
+  .tbl select.input {
+    min-width: 6.5rem;
+  }
+}
+.settings-grid > * {
+  min-width: 0;
+}
+@media (max-width: 720px) {
+  .adm-me {
+    display: none;
+  }
+}

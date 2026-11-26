@@ -1,6 +1,101 @@
 import { useEffect, useState } from 'react';
 import { api, useApi } from '../../lib/api';
 import type { Settings } from '../../lib/types';
+import { useMe, type StaffMe } from './Admin';
+
+type StaffRow = StaffMe & { active: boolean };
+
+function StaffCard() {
+  const { data, reload } = useApi<StaffRow[]>('/admin/staff');
+  const [add, setAdd] = useState({ name: '', login: '', password: '', role: 'staff' });
+  const [msg, setMsg] = useState<string | null>(null);
+  const run = async (fn: () => Promise<unknown>, ok: string) => {
+    try {
+      await fn();
+      setMsg(ok);
+      reload();
+    } catch (x) {
+      setMsg((x as Error).message);
+    }
+  };
+  return (
+    <div className="card d-sec full">
+      <h2 className="card-title">Staff</h2>
+      <p className="mute" style={{ margin: 0 }}>Everyone signs in with their own username. Staff can run jobs and record payments; only owners change prices, settings, staff and deletions.</p>
+      <div style={{ overflowX: 'auto' }}>
+      <table className="tbl">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Username</th>
+            <th>Role</th>
+            <th />
+          </tr>
+        </thead>
+        <tbody>
+          {(data || []).map((r) => (
+            <tr key={r.id} className={r.active ? '' : 'mute'}>
+              <td>{r.name}</td>
+              <td className="mono">{r.login}</td>
+              <td>
+                <select className="input" value={r.role} onChange={(e) => run(() => api(`/admin/staff/${r.id}`, { method: 'PATCH', body: { role: e.target.value } }), 'Role updated.')}>
+                  <option value="staff">Staff</option>
+                  <option value="owner">Owner</option>
+                </select>
+              </td>
+              <td>
+                <button
+                  className="btn sm"
+                  onClick={() => {
+                    const pw = window.prompt(`New password for ${r.name} (8+ characters)`);
+                    if (pw) run(() => api(`/admin/staff/${r.id}`, { method: 'PATCH', body: { password: pw } }), 'Password reset.');
+                  }}
+                >
+                  Reset password
+                </button>{' '}
+                <button className="btn sm" onClick={() => run(() => api(`/admin/staff/${r.id}`, { method: 'PATCH', body: { active: !r.active } }), r.active ? 'Access removed.' : 'Access restored.')}>
+                  {r.active ? 'Remove access' : 'Restore'}
+                </button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      </div>
+      <form
+        className="staff-add"
+        onSubmit={(e) => {
+          e.preventDefault();
+          run(() => api('/admin/staff', { body: add }), `Added ${add.name}.`).then(() => setAdd({ name: '', login: '', password: '', role: 'staff' }));
+        }}
+      >
+        <label className="field">
+          <span>Name</span>
+          <input className="input" value={add.name} onChange={(e) => setAdd({ ...add, name: e.target.value })} />
+        </label>
+        <label className="field">
+          <span>Username</span>
+          <input className="input" autoCapitalize="none" value={add.login} onChange={(e) => setAdd({ ...add, login: e.target.value })} />
+        </label>
+        <label className="field">
+          <span>Password</span>
+          <input className="input" type="password" autoComplete="new-password" value={add.password} onChange={(e) => setAdd({ ...add, password: e.target.value })} />
+        </label>
+        <label className="field">
+          <span>Role</span>
+          <select className="input" value={add.role} onChange={(e) => setAdd({ ...add, role: e.target.value })}>
+            <option value="staff">Staff</option>
+            <option value="owner">Owner</option>
+          </select>
+        </label>
+        {msg && <p className="mute full">{msg}</p>}
+        <button className="btn accent sm full" disabled={!add.name || !add.login || add.password.length < 8}>
+          Add staff member
+        </button>
+      </form>
+    </div>
+  );
+}
 
 const FIELDS: [keyof Settings, string, string?][] = [
   ['shopName', 'Shop name'],
@@ -19,6 +114,8 @@ export default function SettingsPage() {
   const [msg, setMsg] = useState<string | null>(null);
   const [pw, setPw] = useState({ current: '', next: '' });
   const [pwMsg, setPwMsg] = useState<string | null>(null);
+  const me = useMe();
+  const owner = me?.role === 'owner';
   useEffect(() => {
     if (data) setForm(data);
   }, [data]);
@@ -34,6 +131,8 @@ export default function SettingsPage() {
       <div className="settings-grid">
         <form
           className="card d-sec grid2"
+          inert={!owner || undefined}
+          style={owner ? undefined : { opacity: 0.6 }}
           onSubmit={async (e) => {
             e.preventDefault();
             try {
@@ -45,6 +144,7 @@ export default function SettingsPage() {
           }}
         >
           <h2 className="card-title full">Shop</h2>
+          {!owner && <p className="mute full">Only an owner can change these.</p>}
           {FIELDS.map(([k, label, hint]) => (
             <label key={k} className={`field ${k === 'tagline' ? 'full' : ''}`}>
               <span>{label}</span>
@@ -80,7 +180,7 @@ export default function SettingsPage() {
             }
           }}
         >
-          <h2 className="card-title">Staff password</h2>
+          <h2 className="card-title">Your password</h2>
           <label className="field">
             <span>Current password</span>
             <input className="input" type="password" value={pw.current} onChange={(e) => setPw({ ...pw, current: e.target.value })} autoComplete="current-password" />
@@ -94,6 +194,7 @@ export default function SettingsPage() {
             Change password
           </button>
         </form>
+        {owner && <StaffCard />}
       </div>
     </div>
   );

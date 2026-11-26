@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState } from 'react';
+import { createContext, lazy, Suspense, useContext, useEffect, useState } from 'react';
 import { NavLink, Route, Routes, Link } from 'react-router';
 import { api } from '../../lib/api';
 import { JobDrawerHost } from './JobDrawer';
@@ -10,7 +10,18 @@ const Schedule = lazy(() => import('./Schedule'));
 const Films = lazy(() => import('./Films'));
 const SettingsPage = lazy(() => import('./SettingsPage'));
 
-function Login({ onDone }: { onDone: () => void }) {
+export interface StaffMe {
+  id: number;
+  name: string;
+  login: string;
+  role: 'owner' | 'staff';
+}
+const MeContext = createContext<StaffMe | null>(null);
+/** The signed-in staff member (null outside the admin shell). */
+export const useMe = () => useContext(MeContext);
+
+function Login({ onDone }: { onDone: (me: StaffMe) => void }) {
+  const [login, setLogin] = useState('');
   const [pw, setPw] = useState('');
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -22,8 +33,8 @@ function Login({ onDone }: { onDone: () => void }) {
           setBusy(true);
           setErr(null);
           try {
-            await api('/admin/login', { body: { password: pw } });
-            onDone();
+            const r = await api<{ staff: StaffMe }>('/admin/login', { body: { login, password: pw } });
+            onDone(r.staff);
           } catch (x) {
             setErr((x as Error).message);
           } finally {
@@ -34,8 +45,12 @@ function Login({ onDone }: { onDone: () => void }) {
         <p className="mono mute">Legacy Wraps · Staff</p>
         <h1 className="display">Control room</h1>
         <label className="field">
+          <span>Username</span>
+          <input className="input" autoFocus autoCapitalize="none" value={login} onChange={(e) => setLogin(e.target.value)} autoComplete="username" placeholder="owner" />
+        </label>
+        <label className="field">
           <span>Password</span>
-          <input className="input" type="password" autoFocus value={pw} onChange={(e) => setPw(e.target.value)} autoComplete="current-password" />
+          <input className="input" type="password" value={pw} onChange={(e) => setPw(e.target.value)} autoComplete="current-password" />
         </label>
         {err && <p className="adm-err">{err}</p>}
         <button className="btn accent" disabled={busy || !pw}>
@@ -59,10 +74,14 @@ const NAV = [
 
 export default function Admin() {
   const [authed, setAuthed] = useState<boolean | null>(null);
+  const [me, setMe] = useState<StaffMe | null>(null);
   useEffect(() => {
     document.title = 'Control room — Legacy Wraps';
-    api<{ authed: boolean }>('/admin/me')
-      .then((r) => setAuthed(r.authed))
+    api<{ authed: boolean; staff: StaffMe | null }>('/admin/me')
+      .then((r) => {
+        setMe(r.staff);
+        setAuthed(r.authed);
+      })
       .catch(() => setAuthed(false));
     const off = () => setAuthed(false);
     window.addEventListener('lw:unauthorized', off);
@@ -78,11 +97,17 @@ export default function Admin() {
   if (!authed)
     return (
       <div className="adm">
-        <Login onDone={() => setAuthed(true)} />
+        <Login
+          onDone={(s) => {
+            setMe(s);
+            setAuthed(true);
+          }}
+        />
       </div>
     );
 
   return (
+    <MeContext.Provider value={me}>
     <div className="adm">
       <aside className="adm-side">
         <Link to="/" className="adm-brand">
@@ -99,6 +124,11 @@ export default function Admin() {
             </NavLink>
           ))}
         </nav>
+        {me && (
+          <p className="adm-me mono mute">
+            {me.name} · {me.role}
+          </p>
+        )}
         <button
           className="adm-out mono"
           onClick={async () => {
@@ -128,5 +158,6 @@ export default function Admin() {
       </main>
       <JobDrawerHost />
     </div>
+    </MeContext.Provider>
   );
 }

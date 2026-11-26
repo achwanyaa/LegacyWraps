@@ -121,6 +121,9 @@ export const STATUSES = [
   { id: 'curing', label: 'Curing', public: 'Post-heat and cure', blurb: 'Edges post-heated. The film is settling for 24 hours.' },
   { id: 'ready', label: 'Ready', public: 'Ready for pickup', blurb: 'Final QC passed. Come and get it.' },
   { id: 'delivered', label: 'Delivered', public: 'Delivered', blurb: 'Enjoy it. Aftercare guide is in your glovebox.' },
+  // Closed side exits: not steps on the tracker, not pipeline columns.
+  { id: 'lost', label: 'Lost', public: 'Request closed', blurb: 'This request is closed. Message us any time to start again.', closed: true },
+  { id: 'no_show', label: 'No-show', public: 'Booking released', blurb: 'We held your bay but could not reach you, so it has been released. Message us to rebook.', closed: true },
 ];
 
 export const DEFAULT_CONFIG = {

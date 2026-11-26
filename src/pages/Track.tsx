@@ -64,7 +64,9 @@ export default function Track() {
     };
   }, [code]);
 
-  const idx = data ? STATUSES.findIndex((x) => x.id === data.status) : -1;
+  const STEPS = STATUSES.filter((x) => !('closed' in x && x.closed));
+  const closed = data ? STATUSES.find((x) => x.id === data.status && 'closed' in x && x.closed) : undefined;
+  const idx = data ? STEPS.findIndex((x) => x.id === data.status) : -1;
   const reached = (sid: string) => data?.events.find((e) => e.status === sid);
   const body = data ? byId[data.config.zones.body] : undefined;
 
@@ -151,10 +153,11 @@ export default function Track() {
 
             <div className="track-status">
               <p className="hello">
-                Hi {data.owner}, your build is <b>{STATUSES[idx]?.public.toLowerCase()}</b>.
+                Hi {data.owner}, your build is <b>{(closed || STEPS[idx])?.public.toLowerCase()}</b>.
               </p>
-              <ol className="stepper">
-                {STATUSES.map((st, n) => {
+              {closed && <p>{closed.blurb}</p>}
+              {!closed && <ol className="stepper">
+                {STEPS.map((st, n) => {
                   const ev = reached(st.id);
                   const state = n < idx ? 'done' : n === idx ? 'now' : 'next';
                   return (
@@ -168,7 +171,7 @@ export default function Track() {
                     </li>
                   );
                 })}
-              </ol>
+              </ol>}
               {data.events.some((e) => !e.status) && (
                 <div className="notes">
                   <p className="mono mute">Updates from the bay</p>

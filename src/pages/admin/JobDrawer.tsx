@@ -111,11 +111,29 @@ function JobDrawer({ id, onClose }: { id: number; onClose: () => void }) {
             <div className="d-sec">
               <div className="d-label mono">Stage</div>
               <div className="stages">
-                {STATUSES.map((s) => (
+                {STATUSES.filter((s) => !('closed' in s && s.closed)).map((s) => (
                   <button key={s.id} disabled={busy} className={`stage-btn ${job.status === s.id ? 'on' : ''} st-${s.id}`} onClick={() => job.status !== s.id && patch({ status: s.id }, `Moved to ${s.label}`)}>
                     {s.label}
                   </button>
                 ))}
+              </div>
+              <div className="stages closed-stages">
+                {STATUSES.filter((s) => 'closed' in s && s.closed).map((s) => (
+                  <button
+                    key={s.id}
+                    disabled={busy}
+                    className={`stage-btn ${job.status === s.id ? 'on' : ''} st-${s.id}`}
+                    onClick={() => {
+                      if (job.status === s.id) return;
+                      const reason = s.id === 'lost' ? window.prompt('Why was it lost? (price, timing, went elsewhere, no reply...)', job.lost_reason || '') : '';
+                      if (reason === null) return;
+                      patch({ status: s.id, ...(s.id === 'lost' ? { lost_reason: reason } : {}) }, `Marked ${s.label}`);
+                    }}
+                  >
+                    {s.label}
+                  </button>
+                ))}
+                {job.status === 'lost' && job.lost_reason && <span className="mute">Reason: {job.lost_reason}</span>}
               </div>
               <p className="hint">Changing the stage posts an update to the customer's tracker.</p>
             </div>

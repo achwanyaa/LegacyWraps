@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
 import { need } from './env.js';
-import { estimate, normalizeConfig, vehicleLabel } from '../shared/catalog.js';
+import { estimate, normalizeConfig, vehicleLabel, STATUSES } from '../shared/catalog.js';
 
 export const sb = createClient(need('SUPABASE_URL'), need('SUPABASE_SERVICE_ROLE_KEY'), {
   auth: { persistSession: false, autoRefreshToken: false },
@@ -68,8 +68,41 @@ export async function newCode() {
   }
 }
 
-export async function addEvent(jobId, status, message, isPublic = true, at = nowIso()) {
-  must(await sb.from('job_events').insert({ job_id: jobId, status, message, public: isPublic, created_at: at }));
+export async function addEvent(jobId, status, message, isPublic = true, at = nowIso(), staffId = null) {
+  must(await sb.from('job_events').insert({ job_id: jobId, status, message, public: isPublic, created_at: at, staff_id: staffId }));
+}
+
+// ---------- staff, change trail, rate limits ----------
+/** Record who changed what. Never blocks the request on failure. */
+export async function audit(staffId, action, entity, entityId, before = null, after = null) {
+  const { error } = await sb.from('audit_log').insert({ staff_id: staffId ?? null, action, entity, entity_id: entityId == null ? null : String(entityId), before, after });
+  if (error) console.warn('audit failed:', error.message);
+}
+
+/** True when `key` has hit `max` events inside `windowMs`; otherwise records this hit. Shared across instances. */
+export async function rateLimited(key, max, windowMs) {
+  const since = new Date(Date.now() - windowMs).toISOString();
+  const { count, error } = await sb.from('rate_hits').select('key', { count: 'exact', head: true }).eq('key', key).gte('at', since);
+  if (error) return false; // fail open: never lock customers out because of the limiter
+  if (count >= max) return true;
+  await sb.from('rate_hits').insert({ key });
+  if (Math.random() < 0.02) await sb.from('rate_hits').delete().lt('at', new Date(Date.now() - 86400000).toISOString());
+  return false;
+}
+export async function clearRate(key) {
+  await sb.from('rate_hits').delete().eq('key', key);
+}
+
+export const normLogin = (s) => String(s || '').trim().toLowerCase().slice(0, 120);
+
+/** First run after the staff migration: turn the old shared password into an "owner" account. Returns the login or null. */
+export async function ensureOwner() {
+  const { count } = await sb.from('staff').select('id', { count: 'exact', head: true });
+  if (count) return null;
+  const hash = await getSetting('adminPassword');
+  if (!hash) return null;
+  must(await sb.from('staff').insert({ name: 'Owner', login: 'owner', password_hash: hash, role: 'owner' }));
+  return 'owner';
 }
 
 export function snapshotUrl(path) {
@@ -174,7 +207,7 @@ const EVENT_COPY = {
   ready: 'Final QC passed. Ready for pickup.',
   delivered: 'Handed over. Aftercare guide provided.',
 };
-const ORDER = ['inquiry', 'quoted', 'booked', 'in_bay', 'curing', 'ready', 'delivered'];
+const ORDER = STATUSES.filter((x) => !x.closed).map((x) => x.id);
 
 function isoDay(offsetDays, hour = 9) {
   const d = new Date();
