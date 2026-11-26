@@ -80,7 +80,7 @@ function QuoteModal({ cfg, total, onClose, snap }: { cfg: BuildConfig; total: nu
   const [form, setForm] = useState({ name: '', phone: '', email: '', message: '', preferred_date: '' });
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const [done, setDone] = useState<{ code: string } | null>(null);
+  const [done, setDone] = useState<{ code: string; token?: string } | null>(null);
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setForm((f) => ({ ...f, [k]: e.target.value }));
   useEffect(() => {
     const k = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
@@ -93,7 +93,7 @@ function QuoteModal({ cfg, total, onClose, snap }: { cfg: BuildConfig; total: nu
     setErr(null);
     try {
       const utm = Object.fromEntries([...new URLSearchParams(location.search)].filter(([k]) => k.startsWith('utm_')));
-      const r = await api<{ code: string }>('/quote', { body: { ...form, ...utm, config: cfg, snapshot: snap() } });
+      const r = await api<{ code: string; token?: string }>('/quote', { body: { ...form, ...utm, config: cfg, snapshot: snap() } });
       setDone(r);
     } catch (x) {
       setErr((x as Error).message);
@@ -116,7 +116,7 @@ function QuoteModal({ cfg, total, onClose, snap }: { cfg: BuildConfig; total: nu
             <p>We'll confirm your final price on WhatsApp within working hours. Keep your build code to follow along:</p>
             <div className="code display">{done.code}</div>
             <div className="done-cta">
-              <Link className="btn" to={`/track/${done.code}`}>
+              <Link className="btn" to={`/track/${done.token || done.code}`}>
                 Track this build →
               </Link>
               <a className="btn ghost" href={whatsappLink(s?.phone, `Hi Legacy Wraps, my build code is ${done.code}.`)} target="_blank" rel="noreferrer">

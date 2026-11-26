@@ -276,7 +276,7 @@ function JobDrawer({ id, onClose }: { id: number; onClose: () => void }) {
   const est = job && films ? estimate(job.config, byId, { labourMultiplier: settings?.labourMultiplier }) : null;
   const cfg = job?.config;
   const m = cfg ? modelById(cfg.model) : null;
-  const trackUrl = job ? `${location.origin}/track/${job.code}` : '';
+  const trackUrl = job ? `${location.origin}/track/${job.track_token || job.code}` : "";
   const bays = Number(settings?.bays) || 4;
   const set = (k: keyof Job) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => setForm((f) => ({ ...f, [k]: e.target.value }));
 

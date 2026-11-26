@@ -207,7 +207,7 @@ api.post('/quote', async (req, res) => {
     ...readSource(b, 'studio'),
   });
   await addEvent(job.id, 'inquiry', 'Build request received from the Studio.');
-  res.status(201).json({ code, estimate: est });
+  res.status(201).json({ code, token: job.track_token, estimate: est });
 });
 
 // Leads from the Instagram automation tool (ManyChat or similar). Authenticated with the x-lw-key header.
@@ -220,14 +220,23 @@ api.post('/leads', async (req, res) => {
   if (contact.error) return res.status(400).json({ error: contact.error });
   const job = await createJob({ ...contact, ...readLeadFields(b), ...readSource(b, 'instagram') });
   await addEvent(job.id, 'inquiry', 'Request received. The team will message you with a price.');
-  res.status(201).json({ code: job.code });
+  res.status(201).json({ code: job.code, token: job.track_token, track_url: `${req.headers['x-forwarded-proto'] || req.protocol}://${req.headers.host}/track/${job.track_token}` });
 });
 
 api.get('/track/:code', async (req, res) => {
-  let code = String(req.params.code || '').toUpperCase().trim();
-  if (!code.startsWith('LW-')) code = `LW-${code}`;
-  const r = must(await sb.from('jobs').select('*').eq('code', code).maybeSingle());
-  if (!r) return res.status(404).json({ error: 'No build with that code.' });
+  const key = String(req.params.code || '').trim();
+  // The private link carries a 32-character token. A bare LW code (guessable) only shows the stage.
+  const byToken = /^[0-9a-f]{32}$/i.test(key) ? must(await sb.from('jobs').select('*').eq('track_token', key.toLowerCase()).maybeSingle()) : null;
+  if (!byToken) {
+    if (await rateLimited(`track:${clientIp(req)}`, 30, 15 * 60 * 1000)) return res.status(429).json({ error: 'Too many lookups. Try again in a few minutes.' });
+    let code = key.toUpperCase();
+    if (!code.startsWith('LW-')) code = `LW-${code}`;
+    const j = must(await sb.from('jobs').select('id, code, status, created_at').eq('code', code).maybeSingle());
+    if (!j) return res.status(404).json({ error: 'No build with that code.' });
+    const steps = must(await sb.from('job_events').select('status, created_at').eq('job_id', j.id).eq('public', true).not('status', 'is', null).order('created_at'));
+    return res.json({ code: j.code, status: j.status, created_at: j.created_at, events: steps.map((e) => ({ ...e, message: '' })), limited: true });
+  }
+  const r = byToken;
   const events = must(
     await sb.from('job_events').select('status, message, created_at').eq('job_id', r.id).eq('public', true).order('created_at').order('id'),
   );

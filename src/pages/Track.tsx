@@ -19,6 +19,8 @@ interface Tracked {
   snapshot_url: string | null;
   created_at: string;
   events: { status: StatusId | null; message: string; created_at: string }[];
+  /** Opened with the short code only: stage, no personal details. */
+  limited?: boolean;
 }
 
 export default function Track() {
@@ -68,7 +70,7 @@ export default function Track() {
   const closed = data ? STATUSES.find((x) => x.id === data.status && 'closed' in x && x.closed) : undefined;
   const idx = data ? STEPS.findIndex((x) => x.id === data.status) : -1;
   const reached = (sid: string) => data?.events.find((e) => e.status === sid);
-  const body = data ? byId[data.config.zones.body] : undefined;
+  const body = data?.config ? byId[data.config.zones.body] : undefined;
 
   return (
     <>
@@ -113,6 +115,17 @@ export default function Track() {
 
         {data && !loading && (
           <div className="track-grid">
+            {data.limited ? (
+              <div className="track-car" style={{ padding: '20px 22px', display: 'grid', gap: 10 }}>
+                <p className="hello" style={{ margin: 0 }}>Build {data.code} is on the stages shown here.</p>
+                <p className="mute">To see your car, price and install date, open the private link we sent you on WhatsApp, or message us and we will resend it.</p>
+                <div className="track-actions">
+                  <a className="btn sm" href={whatsappLink(s?.phone, `Hi Legacy Wraps, please resend my tracker link for ${data.code}.`)} target="_blank" rel="noreferrer">
+                    Ask for my link
+                  </a>
+                </div>
+              </div>
+            ) : (
             <div className="track-car">
               <div className="track-img">{data.snapshot_url ? <img src={data.snapshot_url} alt={`${data.vehicle} render`} /> : <div className="track-noimg" />}</div>
               <div className="track-spec">
@@ -150,10 +163,11 @@ export default function Track() {
                 </a>
               </div>
             </div>
+            )}
 
             <div className="track-status">
               <p className="hello">
-                Hi {data.owner}, your build is <b>{(closed || STEPS[idx])?.public.toLowerCase()}</b>.
+                {data.limited ? 'This build' : `Hi ${data.owner}, your build`} is <b>{(closed || STEPS[idx])?.public.toLowerCase()}</b>.
               </p>
               {closed && <p>{closed.blurb}</p>}
               {!closed && <ol className="stepper">
