@@ -41,7 +41,7 @@ try {
 
   const args = ['--glb', '/work/car.glb', '--recipe', '/work/recipe.json', '--dims', spec.dims.slice(0, 3).join(','), '--out', '/work/out'];
   for (const k of ['only', 'samples', 'light', 'frames']) if (opt(k)) args.push(`--${k}`, opt(k));
-  const p = await sb.exec(['sh', '-c', `/opt/blender/blender -b -P /work/scene.py -- ${args.join(' ')} 2>&1`], { stdout: 'pipe', stderr: 'ignore' });
+  const p = await sb.exec(['sh', '-c', `/opt/blender/blender -b --python-exit-code 1 -P /work/scene.py -- ${args.join(' ')} 2>&1`], { stdout: 'pipe', stderr: 'ignore' });
   let tail = [];
   let buf = '';
   for await (const chunk of p.stdout) {

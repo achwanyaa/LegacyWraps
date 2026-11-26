@@ -10,6 +10,7 @@ import argparse
 import json
 import math
 import os
+import re
 import sys
 import time
 
@@ -36,6 +37,7 @@ p.add_argument('--width', type=int, default=1280)
 p.add_argument('--height', type=int, default=720)
 p.add_argument('--samples', type=int, default=256)
 p.add_argument('--light', type=float, default=1.0)
+p.add_argument('--device', default='OPTIX,CUDA', help='GPU backends to try, in order')
 a = p.parse_args(sys.argv[sys.argv.index('--') + 1:])
 L, W, H = [float(v) for v in a.dims.split(',')]
 recipe = json.load(open(a.recipe))
@@ -74,10 +76,12 @@ def base_hex(mat):
 
 
 def role_of(mat):
+    # Blender's glTF importer copies a material per vertex-colour use ("bodypaint.001"), so also match without the suffix.
+    plain = re.sub(r'\.\d{3}$', '', mat.name)
     for role, rules in recipe['roles'].items():
         for r in rules:
             if isinstance(r, str):
-                if mat.name == r:
+                if mat.name == r or plain == r:
                     return role
             else:
                 h = base_hex(mat)
@@ -98,6 +102,8 @@ for o in meshes:
             glass_mats.add(s.material)
         elif role:
             slots.append((o, i, role))
+unmatched = sorted({s.material.name for o in meshes for s in o.material_slots if s.material and not role_of(s.material)})
+print('LW unmatched materials:', unmatched, flush=True)
 found = sorted({r for _, _, r in slots} | ({'glass'} if glass_mats else set()))
 missing = sorted(set(recipe['roles']) - set(found))
 print('LW zones found:', found, '| missing:', missing, flush=True)
@@ -152,6 +158,10 @@ def zone_material(role, kind):
         lw = m.node_tree.nodes.new('ShaderNodeLayerWeight')
         lw.inputs['Blend'].default_value = 0.5
         aov(m, 'facing', lw.outputs['Facing'])
+    elif kind == 'matte':  # diffuse light only: Combined / 0.8, denoised
+        b.inputs['Base Color'].default_value = (0.8, 0.8, 0.8, 1)
+        b.inputs['Roughness'].default_value = 1.0
+        b.inputs['Specular IOR Level'].default_value = 0.0
     elif kind == 'mirror':
         b.inputs['Base Color'].default_value = (1, 1, 1, 1)
         b.inputs['Metallic'].default_value = 1.0
@@ -163,7 +173,7 @@ def zone_material(role, kind):
     return m
 
 
-variants = {k: {r: zone_material(r, k) for r in WRAP_ROLES} for k in ('white', 'mirror', 'black')}
+variants = {k: {r: zone_material(r, k) for r in WRAP_ROLES} for k in ('white', 'matte', 'mirror', 'black')}
 for m in glass_mats:
     m.use_nodes = True
     aov(m, 'z_glass')
@@ -222,7 +232,7 @@ def aim(frame):
 scene.render.engine = 'CYCLES'
 prefs = bpy.context.preferences.addons['cycles'].preferences
 device = 'CPU'
-for kind in ('OPTIX', 'CUDA'):
+for kind in [k for k in a.device.upper().split(',') if k in ('OPTIX', 'CUDA')]:
     try:
         prefs.compute_device_type = kind
         prefs.get_devices()
@@ -268,12 +278,22 @@ def render(kind, samples, denoise):
     bpy.ops.render.render(write_still=True)
     path = tmp + '.exr'
     chans = {}
-    first = oiio.ImageBuf(path)
-    for sub in range(first.nsubimages):
-        buf = first if sub == 0 else oiio.ImageBuf(path, sub, 0)
-        px = np.asarray(buf.get_pixels(oiio.FLOAT))
-        for i, name in enumerate(buf.spec().channelnames):
+    inp = oiio.ImageInput.open(path)
+    if not inp:
+        raise RuntimeError('cannot open %s: %s' % (path, oiio.geterror()))
+    sub = 0
+    while inp.seek_subimage(sub, 0):
+        spec = inp.spec()
+        px = inp.read_image(oiio.FLOAT)
+        if px is None:
+            raise RuntimeError('cannot read %s: %s' % (path, inp.geterror()))
+        px = np.asarray(px).reshape(spec.height, spec.width, spec.nchannels)
+        for i, name in enumerate(spec.channelnames):
             chans[name] = px[:, :, i]
+        sub += 1
+    inp.close()
+    if not chans:
+        raise RuntimeError('no channels in %s' % path)
     if not logged:
         print('LW channels:', sorted(chans), flush=True)
         logged = True
@@ -309,11 +329,12 @@ for n, frame in enumerate(todo):
     t0 = time.time()
     aim(frame)
 
-    w = render('white', a.samples, False)  # light passes and masks are not denoised, so use full samples
-    light = rgb(w, 'DiffDir') + rgb(w, 'DiffInd')
+    # Lighting comes from denoised Combined renders: the separate light passes are not denoised and come out grainy.
+    matte = rgb(render('matte', a.samples, True), 'Combined') @ LUMA
+    w = render('white', a.samples, True)  # same panels with a clear coat on top; also carries the masks (AOVs)
     tile = {
-        'diffuse': light @ LUMA,
-        'coat': np.maximum((rgb(w, 'Combined') - rgb(w, 'DiffCol') * light) @ LUMA, 0),
+        'diffuse': matte / 0.8,
+        'coat': np.maximum(rgb(w, 'Combined') @ LUMA - matte, 0),
         'facing': val(w, 'facing'),
     }
     for r in WRAP_ROLES + ['glass']:
