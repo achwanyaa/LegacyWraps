@@ -1,6 +1,9 @@
 import { useEffect, useState } from 'react';
 import { api, useApi } from '../../lib/api';
 import type { Settings } from '../../lib/types';
+import { SERVICES } from '../../../shared/catalog.js';
+
+type AdminSettings = Settings & { followUpHours?: number; followUpDays?: number; serviceDays?: Record<string, number> };
 import { useMe, type StaffMe } from './me';
 
 type StaffRow = StaffMe & { active: boolean };
@@ -109,8 +112,8 @@ const FIELDS: [keyof Settings, string, string?][] = [
 ];
 
 export default function SettingsPage() {
-  const { data } = useApi<Settings>('/admin/settings');
-  const [form, setForm] = useState<Partial<Settings>>({});
+  const { data } = useApi<AdminSettings>('/admin/settings');
+  const [form, setForm] = useState<Partial<AdminSettings>>({});
   const [msg, setMsg] = useState<string | null>(null);
   const [pw, setPw] = useState({ current: '', next: '' });
   const [pwMsg, setPwMsg] = useState<string | null>(null);
@@ -163,6 +166,29 @@ export default function SettingsPage() {
             <input className="input" type="number" step={0.05} min={0.5} max={3} value={form.labourMultiplier ?? 1} onChange={(e) => setForm({ ...form, labourMultiplier: Number(e.target.value) })} />
             <small className="mute">1.10 raises all studio labour estimates by 10%</small>
           </label>
+          <h2 className="card-title full">Leads and bookings</h2>
+          <label className="field">
+            <span>Flag a new lead after (hours)</span>
+            <input className="input" type="number" min={1} max={72} value={form.followUpHours ?? 3} onChange={(e) => setForm({ ...form, followUpHours: Number(e.target.value) })} />
+            <small className="mute">Unanswered leads turn orange on the Leads page</small>
+          </label>
+          <label className="field">
+            <span>Follow up a quote after (days)</span>
+            <input className="input" type="number" min={1} max={30} value={form.followUpDays ?? 2} onChange={(e) => setForm({ ...form, followUpDays: Number(e.target.value) })} />
+          </label>
+          {SERVICES.map((s) => (
+            <label key={s.id} className="field">
+              <span>{s.label}: days in a bay</span>
+              <input
+                className="input"
+                type="number"
+                min={1}
+                max={30}
+                value={form.serviceDays?.[s.id] ?? ''}
+                onChange={(e) => setForm({ ...form, serviceDays: { ...(form.serviceDays || {}), [s.id]: Number(e.target.value) } })}
+              />
+            </label>
+          ))}
           {msg && <p className="mute full">{msg}</p>}
           <button className="btn accent sm full">Save settings</button>
         </form>
