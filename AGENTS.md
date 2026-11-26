@@ -25,6 +25,7 @@ Users: two to five staff, plus the owner. Customers never get accounts. Most enq
 - **Money:** buying models, paid plans, AI credits or tools (ManyChat etc.) needs the owner's explicit yes each time.
 - **Spin checkpoint:** no models bought and no other cars converted until the owner has compared the G 63 spin with the current 3D view on a phone.
 - **Database changes** go in a new numbered file in `supabase/migrations/`, applied with `npm run db:setup` (idempotent; safe to run twice). Keep changes additive so the deployed code keeps working before the new code ships.
+- **No local dev servers.** Don't run `npm run dev` or leave servers running on the developer's PC (8 GB laptop; it drains the machine). Check with `npm run typecheck` and `npm run build`, push, then verify on the deployed site (`BASE=https://legacy-wraps.vercel.app` for `dev/pages.mjs`). Ask first if a local server is ever truly needed, and stop it straight after.
 - **Don't guess business rules** (pricing formula, no-show rule, tax rates). Ask; see Open questions.
 - **Editing code from scripts:** don't use JS `String.replace` or `sed` when the new text contains `$` or backslashes (it silently corrupted files once). Use an exact-text editor or `indexOf`/`slice` splicing, then check `git diff`.
 
@@ -47,7 +48,7 @@ Client-facing brief (pitch, timeline, accounts, questions): https://claude.ai/ar
 | Studio (3D) | `src/pages/Studio.tsx`, `src/three/` | Real-time 3D for six cars (`shared/models3d.js`, GLBs in `public/models/`) |
 | Spin view (new) | `src/spin/`, `render/`, `dev/pack-spin.mjs` | Pre-rendered layers recoloured in the browser; not wired into the Studio yet |
 
-Run locally: `npm install`, then `npm run dev` (http://localhost:5180). `npm run typecheck`, `npm run build`, `npm run db:setup`. Screenshots: `node dev/pages.mjs <outPrefix> <path...>` (desktop + phone; append `!` for full page; `LOGIN_USER=<username> LOGIN=<password>` to sign in). On Windows run it from PowerShell, because Git Bash rewrites `/admin` into a file path. There are no automated tests; verification has been scripted API checks against the local server plus screenshots, with test data removed afterwards.
+Setup: `npm install`. Checks: `npm run typecheck`, `npm run build`, `npm run db:setup`. Screenshots: `node dev/pages.mjs <outPrefix> <path...>` (desktop + phone; append `!` for full page; `LOGIN_USER=<username> LOGIN=<password>` to sign in). On Windows run it from PowerShell, because Git Bash rewrites `/admin` into a file path. There are no automated tests; verification has been scripted API checks against the local server plus screenshots, with test data removed afterwards.
 
 ## Status: what is built and live
 
